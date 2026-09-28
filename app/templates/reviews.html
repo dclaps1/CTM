@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}{{ 'QA reviews' if user.is_manager else 'My feedback' }}{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>{{ 'QA reviews' if user.is_manager else 'My feedback' }}</h1>
+    <p class="sub">{{ reviews | length }} review{{ '' if reviews | length == 1 else 's' }}
+      {% if reviews %}· average {{ ((reviews | sum(attribute='score')) / (reviews | length)) | pct }}{% endif %}
+      {% if user.is_manager %} · Score calls from any call's page.{% endif %}</p>
+  </div>
+</div>
+{% with show=['agent'] %}{% include "_filters.html" %}{% endwith %}
+<div class="card table-wrap">
+<table>
+  <thead><tr><th>Reviewed</th><th>Call</th><th>Agent</th><th class="num">Score</th><th>Feedback</th><th>Reviewer</th><th>Acknowledged</th></tr></thead>
+  <tbody>
+  {% for r in reviews %}
+    <tr>
+      <td>{{ r.created_at | local('%b %d, %Y') }}</td>
+      <td><a href="/calls/{{ r.call_id }}#reviews">{{ r.call.called_at | local('%b %d %I:%M %p') }}</a><br>
+        <span class="muted">{{ r.call.caller_name or (r.call.caller_number | phone) }}</span></td>
+      <td>{{ agent_names.get(r.agent_id) or r.call.agent_name or '—' }}</td>
+      <td class="num">{{ r.score | pct }}</td>
+      <td>{{ r.feedback | truncate(160) }}</td>
+      <td>{{ r.reviewer.name }}</td>
+      <td>
+        {% if r.acknowledged_at %}<span class="pill good">✓ {{ r.acknowledged_at | local('%b %d') }}</span>
+        {% elif user.agent_id and user.agent_id == r.agent_id %}
+          <form method="post" action="/reviews/{{ r.id }}/ack"><input type="hidden" name="next" value="/reviews"><button class="link">Acknowledge</button></form>
+        {% else %}<span class="muted">Pending</span>{% endif %}
+      </td>
+    </tr>
+  {% else %}
+    <tr><td colspan="7" class="muted">No reviews in this period.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endblock %}

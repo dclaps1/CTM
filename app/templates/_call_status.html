@@ -1,0 +1,1 @@
+{% if c.direction == 'outbound' %}<span class="pill outbound">Outbound{{ '' if c.answered else ' · no answer' }}</span>{% else %}<span class="pill {{ c.outcome }}">{{ c.outcome | capitalize }}</span>{% endif %}

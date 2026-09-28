@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}Callbacks{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Missed-call callbacks</h1>
+    <p class="sub"><strong>{{ open_count }}</strong> missed caller{{ '' if open_count == 1 else 's' }} with no answered call or callback since.
+      A missed call counts as handled once the number calls back and gets answered, or an agent calls it.</p>
+  </div>
+</div>
+{% with show=['source', 'q'] %}{% include "_filters.html" %}{% endwith %}
+<div class="card table-wrap">
+<table>
+  <thead><tr><th>Missed at</th><th>Caller</th><th>Status</th><th>Source</th><th>Follow-up</th></tr></thead>
+  <tbody>
+  {% for row in rows %}
+    {% set c = row.call %}
+    <tr>
+      <td><a href="/calls/{{ c.id }}">{{ c.called_at | local('%b %d %I:%M %p') }}</a></td>
+      <td>{{ c.caller_name or '—' }}<br><span class="muted">{{ c.caller_number | phone }}</span></td>
+      <td>{% include "_call_status.html" %}</td>
+      <td>{{ c.source or '—' }}</td>
+      <td>
+        {% if row.followup %}
+          {% set f = row.followup %}
+          <span class="pill good">✓ {{ 'Called back' if f.direction == 'outbound' else 'Reached on return call' }}</span>
+          <a href="/calls/{{ f.id }}">{{ f.called_at | local('%b %d %I:%M %p') }}</a>
+          <span class="muted">{{ f.agent_name }}</span>
+        {% else %}
+          <strong>Open</strong> · <span class="muted">waiting {{ row.waiting }}</span>
+        {% endif %}
+      </td>
+    </tr>
+  {% else %}
+    <tr><td colspan="5" class="muted">No missed calls in this period.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endblock %}

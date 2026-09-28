@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}Set up{% endblock %}
+{% block content %}
+<div class="card auth-box">
+  <h1>Create the admin account</h1>
+  <p class="sub">This page only works until the first account exists.</p>
+  <form method="post" action="/setup">
+    <label>Name <input name="name" required autofocus></label>
+    <label>Email <input type="email" name="email" required autocomplete="username"></label>
+    <label>Password (8+ characters) <input type="password" name="password" minlength="8" required autocomplete="new-password"></label>
+    <button type="submit">Create admin</button>
+  </form>
+</div>
+{% endblock %}

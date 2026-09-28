@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}Agents{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Agents</h1>
+    <p class="sub">Handled calls, talk time, conversions and QA scores per agent. Click a name for their dashboard.</p>
+  </div>
+</div>
+{% with show=['source'] %}{% include "_filters.html" %}{% endwith %}
+<div class="card">{% include "_leaderboard.html" %}</div>
+{% endblock %}

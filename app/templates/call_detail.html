@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+{% block title %}Call #{{ call.id }}{% endblock %}
+{% block content %}
+{% set c = call %}
+<div class="page-head">
+  <div>
+    <h1>{{ call.caller_name or (call.caller_number | phone) or 'Unknown caller' }}</h1>
+    <p class="sub">{{ call.called_at | local }} · {% include "_call_status.html" %} · Call #{{ call.id }}</p>
+  </div>
+  <a class="btn secondary" href="/calls">← All calls</a>
+</div>
+
+<div class="grid grid-3">
+  <div>
+    <div class="card">
+      <h2>Recording</h2>
+      {% if call.has_recording %}
+        <audio controls preload="none" src="/calls/{{ call.id }}/recording"></audio>
+        <p class="muted"><a href="/calls/{{ call.id }}/recording?download=1">Download</a></p>
+      {% else %}
+        <p class="muted">No recording for this call.</p>
+      {% endif %}
+      {% if call.transcript %}
+        <h2>Transcript</h2>
+        <div class="transcript">{{ call.transcript }}</div>
+      {% endif %}
+      {% if call.notes %}
+        <h2 style="margin-top:16px">Notes from CTM</h2>
+        <p>{{ call.notes }}</p>
+      {% endif %}
+    </div>
+
+    <div class="card" id="reviews">
+      <h2>QA reviews</h2>
+      {% for r in call.reviews %}
+        <div class="review">
+          <div class="page-head" style="margin:0">
+            <div><span class="score-big">{{ r.score | pct }}</span>
+              <span class="muted"> by {{ r.reviewer.name }} · {{ r.created_at | local }}</span></div>
+            <div>
+              {% if r.acknowledged_at %}<span class="pill good">✓ Acknowledged {{ r.acknowledged_at | local('%b %d') }}</span>
+              {% elif user.agent_id and user.agent_id == r.agent_id %}
+                <form method="post" action="/reviews/{{ r.id }}/ack" class="inline-form"><input type="hidden" name="next" value="/calls/{{ call.id }}#reviews"><button>Acknowledge</button></form>
+              {% else %}<span class="pill">Not yet acknowledged</span>{% endif %}
+              {% if r.pushed_to_ctm %}<span class="pill">Sent to CTM</span>{% endif %}
+            </div>
+          </div>
+          <table style="margin:8px 0">
+            {% for key, label in criteria %}{% if key in r.criteria %}
+              <tr><td>{{ label }}</td><td class="num">{{ r.criteria[key] }} / {{ max_points }}</td></tr>
+            {% endif %}{% endfor %}
+          </table>
+          {% if r.feedback %}<p style="white-space:pre-wrap">{{ r.feedback }}</p>{% endif %}
+          {% if user.is_admin or r.reviewer_id == user.id %}
+            <form method="post" action="/reviews/{{ r.id }}/delete" onsubmit="return confirm('Delete this review?')"><button class="danger">Delete review</button></form>
+          {% endif %}
+        </div>
+      {% else %}
+        <p class="muted">Not reviewed yet.</p>
+      {% endfor %}
+    </div>
+
+    {% if user.is_manager %}
+    <div class="card" id="review">
+      <h2>Score this call</h2>
+      <form method="post" action="/calls/{{ call.id }}/reviews">
+        <div class="scorecard">
+          {% for key, label in criteria %}
+          <div class="row">
+            <span>{{ label }}</span>
+            <div class="points" role="radiogroup" aria-label="{{ label }}">
+              <label><input type="radio" name="c_{{ key }}" value="" checked><span>N/A</span></label>
+              {% for n in range(max_points + 1) %}
+              <label><input type="radio" name="c_{{ key }}" value="{{ n }}"><span>{{ n }}</span></label>
+              {% endfor %}
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+        <label>Coaching feedback for {{ call.agent_name or 'the agent' }}
+          <textarea name="feedback" placeholder="What went well, what to do differently next time"></textarea></label>
+        {% if settings.push_scores_to_ctm %}
+          <p><label><input type="checkbox" name="push_to_ctm" checked> Also save the score (1–5) to this call in CTM</label></p>
+        {% endif %}
+        <p><button type="submit">Save review</button></p>
+      </form>
+    </div>
+    {% endif %}
+  </div>
+
+  <div>
+    <div class="card">
+      <h2>Details</h2>
+      <dl class="facts">
+        <dt>Caller</dt><dd>{{ call.caller_number | phone }}{% if call.is_new_caller %} <span class="pill">New caller</span>{% endif %}</dd>
+        <dt>Location</dt><dd>{{ [call.caller_city, call.caller_state] | select | join(', ') or '—' }}</dd>
+        <dt>Agent</dt><dd>{{ call.agent_name or '—' }}</dd>
+        <dt>Direction</dt><dd>{{ call.direction | capitalize }}</dd>
+        <dt>CTM status</dt><dd>{{ call.status or '—' }}</dd>
+        <dt>Ring time</dt><dd>{{ call.ring_time | duration }}</dd>
+        <dt>Talk time</dt><dd>{{ call.talk_time | duration }}</dd>
+        <dt>Duration</dt><dd>{{ call.duration | duration }}</dd>
+        <dt>Source</dt><dd>{{ call.source or '—' }}</dd>
+        <dt>Tracking #</dt><dd>{{ call.tracking_label or '' }} {{ call.tracking_number | phone }}</dd>
+        <dt>Tags</dt><dd>{% for t in call.tag_list %}<span class="tag">{{ t }}</span>{% else %}—{% endfor %}</dd>
+        <dt>CTM score</dt><dd>{{ call.sale_score or '—' }}{% if call.sale_conversion %} · converted{% if call.sale_value %} ({{ call.sale_value | money }}){% endif %}{% endif %}</dd>
+      </dl>
+    </div>
+    <div class="card">
+      <h2>Other calls from this number</h2>
+      {% for h in history %}
+        <p style="margin:0 0 8px"><a href="/calls/{{ h.id }}">{{ h.called_at | local('%b %d, %Y %I:%M %p') }}</a><br>
+          {% set c = h %}{% include "_call_status.html" %} <span class="muted">{{ h.agent_name }}</span></p>
+      {% else %}
+        <p class="muted">None.</p>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endblock %}
