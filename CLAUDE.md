@@ -72,3 +72,6 @@
   Greenville work does not go through CTM: 153 Workiz jobs vs 5 call-center bookings in 90 days; top Workiz sources
   are "Personal", ELocal, City Wide and Flood It. Its CTM web-form bookings ("Form reactor number dont use" line)
   often have Minnesota 507 numbers that do not match Workiz. Charleston's contact in CTM notes is Geoff.
+- The call center (Playbook Call Center Co, "PCC") does not get all the calls for its markets' customers (Dan,
+  2026-10-01). Owners and lead services also book straight into Workiz, so Workiz jobs with no CTM history are
+  normal; judge the call center only on contacts it handled, and do not read the CTM/Workiz gap as lost work.
