@@ -96,7 +96,8 @@ python -m app.cli brief --dashboard dashboard.html         # the Jobs & Revenue 
 ```
 
 The report matches Workiz jobs to CTM contacts by phone number (last 10 digits) and shows, per market: sold
-amount, close rate overall, by service and by lead source, quote vs sold, jobs whose sold amount was never
+amount, close rate overall, by service and by lead source (all Flood It sources rolled into one, with a Flood It
+section breaking it out by source and service), average ticket by service and source, quote vs sold, jobs whose sold amount was never
 entered, and CTM bookings with no Workiz job. Definitions are at the top of `app/jobs.py`:
 
 - **Sold**: not canceled and the job total is above $0. **Close rate**: sold ÷ decided (sold, canceled, or

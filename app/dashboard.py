@@ -12,8 +12,8 @@ from datetime import date
 from html import escape
 
 from app.brief_render import _action_lines, _follow, _label, _rows, money, pct, status_line, title
-from app.jobs import (DEFINITIONS, booking_rows, group_rows, market_rows, missing_rows, quote_rows,
-                      quote_summary)
+from app.jobs import (DEFINITIONS, TICKET_NOTE, booking_rows, flood_it_summary, group_rows, market_rows,
+                      missing_rows, quote_rows, quote_summary, ticket_grid_rows)
 
 STATUS_CLASS = {"green": "g", "yellow": "y", "red": "r", "none": "n"}
 
@@ -180,8 +180,14 @@ def _jobs_panel(reports: list[dict]) -> str:
              _jobs_tiles(reports), "<h2>Markets</h2>", _table(market_rows(reports))]
     for r in reports:
         parts += [f"<h2>{escape(r['market'])}: close rate by service</h2>", _table(group_rows(r["by_service"], "Service")),
+                  f"<h2>{escape(r['market'])}: average ticket by service and source</h2>",
+                  f"<p class='fine'>{escape(TICKET_NOTE)}</p>", _table(ticket_grid_rows(r)),
                   f"<h2>{escape(r['market'])}: close rate by lead source</h2>", _table(group_rows(r["by_source"], "Source")),
-                  f"<h2>{escape(r['market'])}: quote vs sold</h2>", f"<p class='fine'>{escape(quote_summary(r))}</p>"]
+                  f"<h2>{escape(r['market'])}: Flood It</h2>", f"<p class='fine'>{escape(flood_it_summary(r))}</p>"]
+        if r["flood_it"]["totals"]["jobs"]:
+            parts += [_table(group_rows(r["flood_it"]["by_source"], "Flood It source")),
+                      _table(group_rows(r["flood_it"]["by_service"], "Service"))]
+        parts += [f"<h2>{escape(r['market'])}: quote vs sold</h2>", f"<p class='fine'>{escape(quote_summary(r))}</p>"]
         for heading, rows in ((None, quote_rows(r)), ("sold amount missing", missing_rows(r)),
                               ("CTM bookings with no Workiz job", booking_rows(r))):
             if heading:

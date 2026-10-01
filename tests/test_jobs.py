@@ -38,16 +38,19 @@ def jobs():
         job(5, "2026-09-20", "2026-10-05", "Submitted", 0),                               # future -> pending
         job(6, "2026-08-01", "2026-08-05", "Done", 999),                                  # created before window
         job(7, "2026-09-14", "2026-09-18", "In progress", 0),                             # on site -> pending
+        job(8, "2026-09-15", "2026-09-19", "Done", 3000, source="Flood It - Service Direct"),
+        job(9, "2026-09-16", "2026-09-20", "Canceled", source="Flood It - Inquirly"),
+        job(10, "2026-09-17", "2026-09-22", "Done", 1000, service="Mold Mitigation", source="Flood It - Inquirly"),
     ]
 
 
 def test_outcomes():
     out = [outcome(j, TODAY) for j in jobs()]
-    assert out == ["sold", "canceled", "missing", "missing", "pending", "sold", "pending"]
+    assert out == ["sold", "canceled", "missing", "missing", "pending", "sold", "pending", "sold", "canceled", "sold"]
 
 
 def test_report_close_rate_missing_quotes_and_bookings():
-    r = build_jobs_report("Greater Boston", jobs(), [{"Phone": "617-555-0002"}], activity(), START, TODAY)
+    r = build_jobs_report("Greater Boston", jobs()[:7], [{"Phone": "617-555-0002"}], activity(), START, TODAY)
     t = r["totals"]
     assert (t["jobs"], t["sold"], t["decided"], t["pending"], t["missing"]) == (6, 1, 4, 2, 2)
     assert t["close_rate"] == 0.25 and t["sold_amount"] == 650 and t["collected"] == 500 and t["outstanding"] == 150
@@ -64,12 +67,27 @@ def test_report_close_rate_missing_quotes_and_bookings():
     assert [x["phone"] for x in b["without_job"]] == ["(617) 555-0002", "(617) 555-0003"]
 
 
+def test_flood_it_rollup_and_ticket_grid():
+    r = build_jobs_report("Greater Boston", jobs(), [], activity(), START, TODAY)
+    sources = {g["name"]: g for g in r["by_source"]}
+    assert sources["Flood It"]["jobs"] == 3 and not any(n.startswith("Flood It -") for n in sources)
+    f = r["flood_it"]
+    assert (f["totals"]["sold"], f["totals"]["decided"], f["totals"]["sold_amount"]) == (2, 3, 4000)
+    assert {g["name"]: g["jobs"] for g in f["by_source"]} == {"Flood It - Inquirly": 2, "Flood It - Service Direct": 1}
+    assert {g["name"]: g["avg_ticket"] for g in f["by_service"]} == {"Water Damage": 3000, "Mold Mitigation": 1000}
+    grid = r["ticket_grid"]
+    assert grid["columns"] == ["Flood It", "Google"]
+    water = next(x for x in grid["rows"] if x["service"] == "Water Damage")
+    assert water["avg_ticket"] == 1825 and water["cells"]["Google"] == {"sold": 1, "avg_ticket": 650}
+    assert water["cells"]["Flood It"] == {"sold": 1, "avg_ticket": 3000}
+
+
 def test_markdown_and_dashboard_tab():
     from app.dashboard import render_dashboard
 
     r = build_jobs_report("Greater Boston", jobs(), [], activity(), START, TODAY)
     md = render_jobs_markdown([r])
-    for heading in ("Close rate by service", "Quote vs sold", "Sold amount missing", "CTM bookings with no Workiz job"):
+    for heading in ("Close rate by service", "Flood It", "Average ticket by service and source", "Quote vs sold", "Sold amount missing", "CTM bookings with no Workiz job"):
         assert heading in md
     brief = build_brief(scenario(), DAY, now=ts(23))
     page = render_dashboard(brief, jobs=[r])

@@ -62,10 +62,25 @@ def outcome(job: dict, today: date) -> str:
     return "missing" if when is not None and when < today else "pending"
 
 
-def _group(jobs: list[dict], key: str, today: date) -> list[dict]:
+FLOOD_IT = "Flood It"
+TICKET_COLUMNS = 4  # sources shown as their own column in the avg-ticket grid; the rest go under "Other"
+
+
+def _name(job: dict, key: str) -> str:
+    return str(job.get(key) or "").strip() or UNKNOWN
+
+
+def source_family(job: dict) -> str:
+    """Lead source, with every "Flood It - …" source rolled up into one "Flood It"."""
+    name = _name(job, "JobSource")
+    return FLOOD_IT if name.lower().startswith("flood it") else name
+
+
+def _group(jobs: list[dict], key, today: date) -> list[dict]:
+    """`key`: a Workiz field name, or a function of the job."""
     groups: dict[str, list[dict]] = defaultdict(list)
     for j in jobs:
-        groups[str(j.get(key) or "").strip() or UNKNOWN].append(j)
+        groups[key(j) if callable(key) else _name(j, key)].append(j)
     rows = [{"name": name, **_totals(js, today)} for name, js in groups.items()]
     return sorted(rows, key=lambda r: (-r["jobs"], r["name"]))
 
@@ -89,6 +104,28 @@ def _totals(jobs: list[dict], today: date) -> dict:
         "outstanding": round(due, 2),
         "avg_ticket": round(sold_amount / len(sold), 2) if sold else None,
     }
+
+
+def _ticket_grid(jobs: list[dict], today: date) -> dict:
+    """Average sold ticket by service (rows) and lead source (columns)."""
+    sold = [j for j in jobs if outcome(j, today) == "sold"]
+    by_source = _group(sold, source_family, today)
+    by_source.sort(key=lambda g: (-g["sold"], -g["sold_amount"], g["name"]))
+    columns = [g["name"] for g in by_source[:TICKET_COLUMNS]]
+    if len(by_source) > TICKET_COLUMNS:
+        columns.append("Other")
+
+    def column(j: dict) -> str:
+        return source_family(j) if source_family(j) in columns else "Other"
+
+    rows = []
+    for g in _group(sold, "JobType", today):
+        service_jobs = [j for j in sold if _name(j, "JobType") == g["name"]]
+        cells = {c["name"]: {"sold": c["sold"], "avg_ticket": c["avg_ticket"]}
+                 for c in _group(service_jobs, column, today)}
+        rows.append({"service": g["name"], "sold": g["sold"], "avg_ticket": g["avg_ticket"], "cells": cells})
+    rows.sort(key=lambda r: (-r["sold"], r["service"]))
+    return {"columns": columns, "rows": rows}
 
 
 def _ctm_index(act: Activity) -> dict[str, list[dict]]:
@@ -159,6 +196,7 @@ def build_jobs_report(market: str, jobs: list[dict], leads: list[dict], act: Act
                        "agent": (first.get("agent") or {}).get("name") or "—", "quote": ctm_quote(records),
                        "workiz": workiz})
     booked.sort(key=lambda b: b["booked_day"])
+    flood = [j for j in window if source_family(j) == FLOOD_IT]
 
     return {
         "market": market,
@@ -167,7 +205,13 @@ def build_jobs_report(market: str, jobs: list[dict], leads: list[dict], act: Act
         "totals": {**_totals(window, today), "ctm_matched": len(matched),
                    "ctm_match_rate": len(matched) / len(window) if window else None},
         "by_service": _group(window, "JobType", today),
-        "by_source": _group(window, "JobSource", today),
+        "by_source": _group(window, source_family, today),
+        "flood_it": {
+            "totals": _totals(flood, today),
+            "by_source": _group(flood, "JobSource", today),
+            "by_service": _group(flood, "JobType", today),
+        },
+        "ticket_grid": _ticket_grid(window, today),
         "missing_amounts": missing,
         "quote_vs_sold": {
             "jobs": len(quotes), "quoted": round(quoted, 2), "sold": round(sold_q, 2),
@@ -230,6 +274,25 @@ def group_rows(groups: list[dict], label: str) -> list[list[str]]:
     return rows
 
 
+def ticket_grid_rows(report: dict) -> list[list[str]]:
+    grid = report["ticket_grid"]
+    rows = [["Service", "All sources"] + grid["columns"]]
+    for r in grid["rows"]:
+        cells = [r["cells"].get(c) for c in grid["columns"]]
+        rows.append([r["service"], f"{_money(r['avg_ticket'])} ({r['sold']})"]
+                    + [f"{_money(c['avg_ticket'])} ({c['sold']})" if c else "—" for c in cells])
+    return rows
+
+
+def flood_it_summary(report: dict) -> str:
+    t = report["flood_it"]["totals"]
+    if not t["jobs"]:
+        return "No Flood It jobs in this window."
+    return (f"Flood It: {t['jobs']} jobs, {t['sold']} sold, close rate {_pct(t['close_rate'])} "
+            f"({t['sold']}/{t['decided']}), sold {_money(t['sold_amount'])}, avg ticket {_money(t['avg_ticket'])}, "
+            f"{t['missing']} with the amount missing, {t['pending']} pending.")
+
+
 def quote_rows(report: dict) -> list[list[str]]:
     rows = [["Job #", "Appt", "Service", "Customer", "Quote (CTM)", "Sold (Workiz)", "Difference"]]
     for q in report["quote_vs_sold"]["rows"]:
@@ -277,12 +340,18 @@ def render_jobs_markdown(reports: list[dict]) -> str:
     for r in reports:
         parts += ["", f"## {r['market']}", "", "### Close rate by service", "", table(group_rows(r["by_service"], "Service")),
                   "", "### Close rate by lead source", "", table(group_rows(r["by_source"], "Source")),
+                  "", "### Flood It", "", flood_it_summary(r), "",
+                  table(group_rows(r["flood_it"]["by_source"], "Flood It source")), "",
+                  table(group_rows(r["flood_it"]["by_service"], "Service")),
+                  "", "### Average ticket by service and source", "", TICKET_NOTE, "", table(ticket_grid_rows(r)),
                   "", "### Quote vs sold", "", quote_summary(r), "", table(quote_rows(r)),
                   "", "### Sold amount missing", "", table(missing_rows(r)),
                   "", "### CTM bookings with no Workiz job", "", table(booking_rows(r))]
     parts += ["", DEFINITIONS]
     return "\n".join(parts) + "\n"
 
+
+TICKET_NOTE = "Average sold ticket, with the number of sold jobs in brackets. Flood It sources are combined."
 
 DEFINITIONS = (
     "Sold = not canceled and job total above $0. Close rate = sold ÷ decided (sold, canceled, or appointment "
