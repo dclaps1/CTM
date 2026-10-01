@@ -66,3 +66,9 @@
   Portland (153253), Franklin WI (153251), Northwest Indiana (139165) and North & East Indianapolis (154874); all eight
   tokens connect and their jobs are in the right cities. CTM markets read them from `WORKIZ_TOKEN_CHARLESTON`,
   `WORKIZ_TOKEN_LEHIGH_VALLEY` and `WORKIZ_TOKEN_SOUTH_ATLANTA` (all three set and working as of 2026-10-01).
+- Greenville (CTM market) is Greenville SC, Workiz `WORKIZ_TOKEN_GREENVILLE`; Dan confirmed 2026-10-01 that Stosh
+  Fernandez is Greenville on CTM (Stosh is Workiz admin and entered 145 of 150 jobs in the last 90 days; Toby
+  Williamson is manager/tech). `GREENVILLE_NC` (eastern NC) and `SIMPSONVILLE_GREER` are separate franchises. Most
+  Greenville work does not go through CTM: 153 Workiz jobs vs 5 call-center bookings in 90 days; top Workiz sources
+  are "Personal", ELocal, City Wide and Flood It. Its CTM web-form bookings ("Form reactor number dont use" line)
+  often have Minnesota 507 numbers that do not match Workiz. Charleston's contact in CTM notes is Geoff.
