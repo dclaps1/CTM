@@ -54,12 +54,12 @@
   and works (12 team members). Last 12 months: 429 jobs (373 Done, 33 Canceled, 16 In progress), about $651k closed
   revenue, newest job created 2026-09-30. Jobs are Leesburg, Albany, Thomasville, Cairo, Bainbridge, Valdosta and
   Americus GA. No "done pending approval" jobs.
-- Full token check 2026-10-01 (84 Workiz tokens). HTTP 401 (token rejected, needs a fresh API token from that
-  location's Workiz admin): Bergen County, Central Florida, Charlotte Matthews, Henderson Las Vegas, Houston Sugar
-  Land, Wesley Chapel Zephyrhills. Connect but no jobs in the last 60 days (ask Dan if closed or moved accounts):
-  Fort Worth Arlington (last job Dec 2025), North Orlando (Nov 7 2025), North Tampa (Feb 18 2026), Reno Carson City
-  (Apr 28 2026), West Raleigh (Jun 4 2026), SW Connecticut (Jul 23 2026). All 10 CTM markets now have a Workiz
-  token (Charleston, South Atlanta and Lehigh Valley-Poconos were added later on 2026-10-01; all 10 connect).
+- Full API check 2026-10-01 (re-run later the same day, 93 Workiz tokens). CTM connects (11 users, 1,533 calls in the
+  last 7 days). HTTP 401 (token rejected, needs a fresh API token from that location's Workiz admin): Bergen County,
+  Central Florida, Charlotte Matthews, Henderson Las Vegas, Houston Sugar Land, Wesley Chapel Zephyrhills. Connect but
+  no jobs in the last 60 days (ask Dan if closed or moved accounts): Fort Worth Arlington, North Orlando, North Tampa,
+  Reno Carson City, SW Connecticut, West Raleigh. Boca Raton Delray Beach is quiet (6 jobs in 60 days, newest Aug 25).
+  All 10 CTM markets now have a working Workiz token (Charleston, South Atlanta and Lehigh Valley were added).
 - Workiz account names: the "Workiz Accounts" tab of `2026.10 October Workiz Plan Billing.xlsx` (Voda SharePoint,
   Royalties and Other Fees/IT Stack Invoices/2026) maps every Workiz account id to its location. Used 2026-10-01 to
   name Charleston (152619), Lehigh Valley-Poconos & Bucks County (149541), South Atlanta (155818), Nashville (119959),
