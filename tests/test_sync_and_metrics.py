@@ -1,7 +1,6 @@
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
-import httpx
 
 from app.metrics import CallFilters, leaderboard, missed_callbacks, summarize, call_query
 from app.models import Agent, Call

@@ -27,3 +27,7 @@
   City franchise: if yes, map `KANSAS_CITY` to "South Kansas City" in `MARKET_ENV` (or rename the token); if no, keep
   it separate and South Kansas City still needs its own token. It also has 1 "done pending approval" job (same
   question as Greensboro).
+- NW Arkansas (Workiz-only, not on CTM; token `WORKIZ_TOKEN_NW_ARKANSAS`, connection checked 2026-10-01 and working,
+  225 jobs in the last 12 months, 13 team members, 46 leads). Jobs are Fayetteville, Bentonville, Bella Vista, Rogers,
+  Springdale and Fort Smith. It has 18 "done pending approval / Payment Pending" jobs in 2026 (same question as
+  Greensboro).

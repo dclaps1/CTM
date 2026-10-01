@@ -42,6 +42,11 @@ class WorkizError(RuntimeError):
         self.status_code = status_code
 
 
+def _market_name(suffix: str) -> str:
+    """NORTH_DALLAS -> "North Dallas"; compass abbreviations stay upper case (NW_ARKANSAS -> "NW Arkansas")."""
+    return " ".join(w if w in {"N", "S", "E", "W", "NE", "NW", "SE", "SW"} else w.title() for w in suffix.split("_"))
+
+
 def configured_markets(env: dict[str, str] | None = None) -> dict[str, str]:
     """{market: token} for every WORKIZ_TOKEN_<MARKET> that is set. Known suffixes map to the CTM market names
     above; any other suffix becomes its own market (WORKIZ_TOKEN_NORTH_DALLAS -> "North Dallas")."""
@@ -51,7 +56,7 @@ def configured_markets(env: dict[str, str] | None = None) -> dict[str, str]:
     for key, token in sorted(env.items()):
         if key.startswith("WORKIZ_TOKEN_") and token:
             suffix = key.removeprefix("WORKIZ_TOKEN_")
-            out[names.get(suffix, suffix.replace("_", " ").title())] = token
+            out[names.get(suffix, _market_name(suffix))] = token
     return out
 
 
