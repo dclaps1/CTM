@@ -20,13 +20,8 @@
 - Greensboro (Workiz-only, not on CTM; token added 2026-10-01, connection checked and working). Its Workiz has a
   "done pending approval" status (11 jobs in 2026 so far). `app/jobs.py` counts any status starting with "done"
   as sold once it has revenue, so these count as closed today. Ask Dan whether they should wait until approved.
-- Kansas City (token added as `WORKIZ_TOKEN_KANSAS_CITY`; connection checked 2026-10-01 and working, 219 jobs in the
-  last 12 months). The code expects `SOUTH_KANSAS_CITY` for the CTM market "South Kansas City", so today it shows up
-  as a separate Workiz-only "Kansas City" with no CTM matching. Its jobs are mostly Kansas City MO, Independence,
-  Blue Springs, Liberty, Kearney and Leavenworth KS (north/east, not south). Ask Dan whether it is the South Kansas
-  City franchise: if yes, map `KANSAS_CITY` to "South Kansas City" in `MARKET_ENV` (or rename the token); if no, keep
-  it separate and South Kansas City still needs its own token. It also has 1 "done pending approval" job (same
-  question as Greensboro).
+- South Kansas City: Dan confirmed (2026-10-01) that `WORKIZ_TOKEN_KANSAS_CITY` is the South Kansas City franchise,
+  so `MARKET_ENV` maps `KANSAS_CITY` to it. It has 1 "done pending approval" job (same question as Greensboro).
 - NW Arkansas (Workiz-only, not on CTM; token `WORKIZ_TOKEN_NW_ARKANSAS`, connection checked 2026-10-01 and working,
   225 jobs in the last 12 months, 13 team members, 46 leads). Jobs are Fayetteville, Bentonville, Bella Vista, Rogers,
   Springdale and Fort Smith. It has 18 "done pending approval / Payment Pending" jobs in 2026 (same question as

@@ -71,3 +71,4 @@ def test_configured_markets_reads_per_market_tokens():
     assert configured_markets(env) == {"Greater Boston": "a"}
     assert configured_markets({"WORKIZ_TOKEN_NORTH_DALLAS": "b"}) == {"North Dallas": "b"}
     assert configured_markets({"WORKIZ_TOKEN_NW_ARKANSAS": "c"}) == {"NW Arkansas": "c"}
+    assert configured_markets({"WORKIZ_TOKEN_KANSAS_CITY": "d"}) == {"South Kansas City": "d"}

@@ -31,7 +31,7 @@ MARKET_ENV = {
     "Richmond": "RICHMOND",
     "Greenville": "GREENVILLE",
     "Ann Arbor": "ANN_ARBOR",
-    "South Kansas City": "SOUTH_KANSAS_CITY",
+    "South Kansas City": "KANSAS_CITY",
     "Martinsburg & Winchester": "MARTINSBURG",
 }
 
