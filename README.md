@@ -62,7 +62,25 @@ python -m app.cli sync --days 90     # re-pull the last 90 days
 python -m app.cli agents             # list CTM agent ids
 python -m app.cli create-user pat@example.com --name "Pat" --role manager
 python -m app.cli create-user sam@example.com --name "Sam" --role agent --agent-id 12345
+python -m app.cli brief                                  # yesterday's Daily Call Center Brief (Markdown)
+python -m app.cli brief --date 2026-09-30 --html brief.html --json brief.json
 ```
+
+### Daily Call Center Brief
+
+`python -m app.cli brief` reads CTM directly (no database) and builds a management brief for one day:
+
+- **Scorecard** against targets, with the prior day and the 7-day average: answered live, web leads called in
+  5 minutes, opportunity conversion, jobs booked, open quotes followed up within 24 hours.
+- **Missed calls called back within 60 seconds**, and **calls handled** (answered live + called back within 60 sec).
+- **Action list** with an owner on each item: missed callers never reached, open quotes with no follow-up,
+  and the prior day's quotes that still have none.
+- **Follow-through** on the prior day's list, **alerts** (weak hours, slow web leads, markets with no bookings,
+  dialer calling spam), and **agent** and **market** tables.
+
+All definitions live in `app/brief.py`, so the numbers are the same every run. It pulls 90 days of CTM activity
+(calls, texts, forms and chats) to tell new leads from repeat contacts. Targets are in `Targets` in the same file.
+Use `--notes file.txt` to add commentary under the title.
 
 ## Configuration
 
@@ -101,9 +119,11 @@ app/
   sync.py         CTM → database mapping, incremental sync, background worker
   metrics.py      filters, KPIs, leaderboard, missed-call callback matching
   scorecard.py    QA scorecard items and scoring
+  brief.py        Daily Call Center Brief: definitions, KPIs, action lists, alerts (raw CTM activity, no DB)
+  brief_render.py brief → email-safe HTML or Markdown
   main.py         web routes (dashboard, calls, recordings, reviews, callbacks, admin, webhook)
   auth.py         password hashing and role checks
-  cli.py          sync / create-user / agents commands
+  cli.py          sync / create-user / agents / brief commands
   templates/      Jinja pages
   static/         CSS and charts
 tests/            API client, sync, metrics and web tests (CTM is mocked)

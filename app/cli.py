@@ -4,6 +4,7 @@
     python -m app.cli create-user admin@example.com --name "Pat" --role admin
     python -m app.cli sync [--days 90]
     python -m app.cli agents
+    python -m app.cli brief [--date 2026-09-30] [--html brief.html] [--markdown brief.md] [--json brief.json]
 """
 from __future__ import annotations
 
@@ -11,11 +12,16 @@ import argparse
 import getpass
 import json
 import sys
+from datetime import date, datetime, timedelta
+from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
 
 from app import db
 from app.auth import hash_password
+from app.brief import build_brief, load_activity
+from app.brief_render import render_html, render_markdown
 from app.config import get_settings
 from app.ctm_client import CTMClient
 from app.models import ROLES, Agent, User
@@ -35,9 +41,17 @@ def main(argv: list[str] | None = None) -> int:
     sy = sub.add_parser("sync", help="pull calls and agents from CTM")
     sy.add_argument("--days", type=int, help="re-pull this many days instead of syncing incrementally")
     sub.add_parser("agents", help="list CTM agents known locally")
+    br = sub.add_parser("brief", help="build the Daily Call Center Brief straight from CTM")
+    br.add_argument("--date", help="report day, YYYY-MM-DD (default: yesterday)")
+    br.add_argument("--html", type=Path, help="write email-ready HTML here")
+    br.add_argument("--markdown", type=Path, help="write Markdown here (printed when no output is given)")
+    br.add_argument("--json", type=Path, help="write the raw numbers and action lists here")
+    br.add_argument("--notes", type=Path, help="text file with commentary to put under the title")
     args = parser.parse_args(argv)
 
     settings = get_settings()
+    if args.command == "brief":
+        return run_brief(args, settings)
     db.configure(settings.database_url)
     db.init_db()
 
@@ -66,6 +80,25 @@ def main(argv: list[str] | None = None) -> int:
         with db.new_session() as session:
             for agent in session.scalars(select(Agent).order_by(Agent.name)):
                 print(f"{agent.id}\t{agent.name}\t{agent.email or ''}")
+    return 0
+
+
+def run_brief(args: argparse.Namespace, settings) -> int:
+    tz = ZoneInfo(settings.timezone)
+    day = date.fromisoformat(args.date) if args.date else datetime.now(tz).date() - timedelta(days=1)
+    with CTMClient.from_settings(settings) as client:
+        brief = build_brief(load_activity(client, day, tz), day)
+    notes = args.notes.read_text() if args.notes else ""
+    if args.json:
+        args.json.write_text(json.dumps(brief, indent=2, default=str))
+    if args.html:
+        args.html.write_text(render_html(brief, notes))
+    if args.markdown or not (args.json or args.html):
+        text = render_markdown(brief, notes)
+        if args.markdown:
+            args.markdown.write_text(text)
+        else:
+            print(text)
     return 0
 
 
