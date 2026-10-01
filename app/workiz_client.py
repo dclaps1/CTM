@@ -43,9 +43,16 @@ class WorkizError(RuntimeError):
 
 
 def configured_markets(env: dict[str, str] | None = None) -> dict[str, str]:
-    """{market: token} for every market that has WORKIZ_TOKEN_<MARKET> set."""
+    """{market: token} for every WORKIZ_TOKEN_<MARKET> that is set. Known suffixes map to the CTM market names
+    above; any other suffix becomes its own market (WORKIZ_TOKEN_NORTH_DALLAS -> "North Dallas")."""
     env = env if env is not None else dict(os.environ)
-    return {m: env[f"WORKIZ_TOKEN_{s}"] for m, s in MARKET_ENV.items() if env.get(f"WORKIZ_TOKEN_{s}")}
+    names = {s: m for m, s in MARKET_ENV.items()}
+    out = {}
+    for key, token in sorted(env.items()):
+        if key.startswith("WORKIZ_TOKEN_") and token:
+            suffix = key.removeprefix("WORKIZ_TOKEN_")
+            out[names.get(suffix, suffix.replace("_", " ").title())] = token
+    return out
 
 
 class WorkizClient:

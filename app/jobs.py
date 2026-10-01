@@ -23,7 +23,7 @@ from collections import defaultdict
 from datetime import date, datetime, timedelta
 from typing import Any
 
-from app.brief import Activity, _largest_amount, first_name, is_booked_record, phone
+from app.brief import MARKETS, Activity, _largest_amount, first_name, is_booked_record, phone
 
 UNKNOWN = "(not set)"
 
@@ -225,6 +225,7 @@ def build_jobs_report(market: str, jobs: list[dict], leads: list[dict], act: Act
 
     return {
         "market": market,
+        "on_ctm": market in {name for name, _ in MARKETS},
         "start": start.isoformat(),
         "today": today.isoformat(),
         "totals": {**_totals(window, today), "ctm_matched": len(matched),
@@ -285,10 +286,11 @@ def market_rows(reports: list[dict]) -> list[list[str]]:
              "Amount missing", "Pending", "CTM bookings, no job", "Jobs found in CTM"]]
     for r in reports:
         t, b = r["totals"], r["ctm_bookings"]
+        ctm = ([f"{b['total'] - b['with_job']} of {b['total']}", f"{t['ctm_matched']} ({_pct(t['ctm_match_rate'])})"]
+               if r.get("on_ctm", True) else ["not on CTM", "not on CTM"])
         rows.append([r["market"], str(t["jobs"]), str(t["sold"]), f"{_pct(t['close_rate'])} ({t['sold']}/{t['decided']})",
                      _money(t["sold_amount"]), _money(t["avg_ticket"]), _money(t["collected"]), _money(t["outstanding"]),
-                     str(t["missing"]), str(t["pending"]), f"{b['total'] - b['with_job']} of {b['total']}",
-                     f"{t['ctm_matched']} ({_pct(t['ctm_match_rate'])})"])
+                     str(t["missing"]), str(t["pending"])] + ctm)
     return rows
 
 
@@ -358,6 +360,8 @@ def booking_rows(report: dict) -> list[list[str]]:
 
 def quote_summary(report: dict) -> str:
     q = report["quote_vs_sold"]
+    if not report.get("on_ctm", True):
+        return "This location is not on CTM yet, so there are no call-center quotes or bookings to compare."
     if not q["jobs"]:
         return "No sold job has a CTM quote to compare yet."
     return (f"{q['jobs']} sold jobs have a call-center quote: quoted {_money(q['quoted'])}, sold {_money(q['sold'])} "

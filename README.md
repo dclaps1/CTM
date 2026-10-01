@@ -87,7 +87,8 @@ Use `--notes file.txt` to add commentary under the title.
 Each franchise has its own Workiz account. Add its API token (and secret) as environment variables named
 `WORKIZ_TOKEN_<MARKET>` / `WORKIZ_SECRET_<MARKET>`, where `<MARKET>` is one of `BOSTON`, `CHARLESTON`,
 `SOUTH_ATLANTA`, `LEHIGH_VALLEY`, `GRAND_RAPIDS`, `RICHMOND`, `GREENVILLE`, `ANN_ARBOR`, `SOUTH_KANSAS_CITY`,
-`MARTINSBURG`. In Workiz: enable the Developer API add-on, then Settings → Integrations.
+`MARTINSBURG` (the 10 CTM markets). Any other suffix is picked up as its own location, e.g.
+`WORKIZ_TOKEN_NORTH_DALLAS` → "North Dallas"; it gets Jobs & Revenue but no CTM matching. In Workiz: enable the Developer API add-on, then Settings → Integrations.
 
 ```bash
 python -m app.cli workiz-probe --market "Greater Boston"   # test the connection, show which job fields are filled

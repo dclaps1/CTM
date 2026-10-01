@@ -69,3 +69,4 @@ def test_errors_do_not_leak_the_token():
 def test_configured_markets_reads_per_market_tokens():
     env = {"WORKIZ_TOKEN_BOSTON": "a", "WORKIZ_TOKEN_CHARLESTON": "", "OTHER": "x"}
     assert configured_markets(env) == {"Greater Boston": "a"}
+    assert configured_markets({"WORKIZ_TOKEN_NORTH_DALLAS": "b"}) == {"North Dallas": "b"}
