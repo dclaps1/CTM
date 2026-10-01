@@ -58,11 +58,11 @@
   location's Workiz admin): Bergen County, Central Florida, Charlotte Matthews, Henderson Las Vegas, Houston Sugar
   Land, Wesley Chapel Zephyrhills. Connect but no jobs in the last 60 days (ask Dan if closed or moved accounts):
   Fort Worth Arlington (last job Dec 2025), North Orlando (Nov 7 2025), North Tampa (Feb 18 2026), Reno Carson City
-  (Apr 28 2026), West Raleigh (Jun 4 2026), SW Connecticut (Jul 23 2026). CTM markets with no Workiz token:
-  Charleston, South Atlanta, Lehigh Valley-Poconos.
+  (Apr 28 2026), West Raleigh (Jun 4 2026), SW Connecticut (Jul 23 2026). All 10 CTM markets now have a Workiz
+  token (Charleston, South Atlanta and Lehigh Valley-Poconos were added later on 2026-10-01; all 10 connect).
 - Workiz account names: the "Workiz Accounts" tab of `2026.10 October Workiz Plan Billing.xlsx` (Voda SharePoint,
   Royalties and Other Fees/IT Stack Invoices/2026) maps every Workiz account id to its location. Used 2026-10-01 to
   name Charleston (152619), Lehigh Valley-Poconos & Bucks County (149541), South Atlanta (155818), Nashville (119959),
   Portland (153253), Franklin WI (153251), Northwest Indiana (139165) and North & East Indianapolis (154874); all eight
   tokens connect and their jobs are in the right cities. CTM markets read them from `WORKIZ_TOKEN_CHARLESTON`,
-  `WORKIZ_TOKEN_LEHIGH_VALLEY` and `WORKIZ_TOKEN_SOUTH_ATLANTA` once those are added to the environment.
+  `WORKIZ_TOKEN_LEHIGH_VALLEY` and `WORKIZ_TOKEN_SOUTH_ATLANTA` (all three set and working as of 2026-10-01).
