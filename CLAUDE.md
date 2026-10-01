@@ -20,13 +20,15 @@
 - Greensboro (Workiz-only, not on CTM; token added 2026-10-01, connection checked and working). Its Workiz has a
   "done pending approval" status (11 jobs in 2026 so far). `app/jobs.py` counts any status starting with "done"
   as sold once it has revenue, so these count as closed today. Ask Dan whether they should wait until approved.
-- South Kansas City: Dan confirmed (2026-10-01) that `WORKIZ_TOKEN_KANSAS_CITY` is the South Kansas City franchise,
-  so `MARKET_ENV` maps `KANSAS_CITY` to it. It has 1 "done pending approval" job (same question as Greensboro).
-- South Atlanta (CTM market) has no Workiz token. Neither Atlanta token is it (checked 2026-10-01, last 12 months):
+- South Kansas City is Workiz account 143776 (Overland Park, Olathe, Lawrence, Leawood, Lee's Summit; 649 jobs in the
+  last 12 months), read from `WORKIZ_TOKEN_SOUTH_KANSAS_CITY`. `WORKIZ_TOKEN_KANSAS_CITY` is a different account
+  (141043, north side: Kansas City, Liberty, Kearney, Leavenworth; 219 jobs) and shows as its own "Kansas City"
+  location. Checked 2026-10-01 against Dan's account sheet; this corrects the earlier mapping of KANSAS_CITY.
+- South Atlanta is Workiz account 155818 (found 2026-10-01 in the Workiz billing workbook; token works, jobs in
+  Atlanta, Newnan, Riverdale, Fayetteville). Earlier note: neither Atlanta token is it (checked 2026-10-01, last 12 months):
   `ATLANTA_MARIETTA_WOODSTOCK` is the NW suburbs (Alpharetta, Marietta, Powder Springs, Canton, Woodstock, Smyrna;
   only 6 of 605 jobs south of the city) and `NORTH_ATLANTA` is the NE suburbs (Alpharetta, Cumming, Gainesville,
-  Lawrenceville, Duluth; none south). Do not map either to South Atlanta. Ask Dan whether South Atlanta has its own
-  Workiz account (McDonough, Stockbridge, Fayetteville, Peachtree City, Newnan) and get its token.
+  Lawrenceville, Duluth; none south). Do not map either to South Atlanta.
 - NW Arkansas (Workiz-only, not on CTM; token `WORKIZ_TOKEN_NW_ARKANSAS`, connection checked 2026-10-01 and working,
   225 jobs in the last 12 months, 13 team members, 46 leads). Jobs are Fayetteville, Bentonville, Bella Vista, Rogers,
   Springdale and Fort Smith. It has 18 "done pending approval / Payment Pending" jobs in 2026 (same question as
@@ -58,3 +60,9 @@
   Fort Worth Arlington (last job Dec 2025), North Orlando (Nov 7 2025), North Tampa (Feb 18 2026), Reno Carson City
   (Apr 28 2026), West Raleigh (Jun 4 2026), SW Connecticut (Jul 23 2026). CTM markets with no Workiz token:
   Charleston, South Atlanta, Lehigh Valley-Poconos.
+- Workiz account names: the "Workiz Accounts" tab of `2026.10 October Workiz Plan Billing.xlsx` (Voda SharePoint,
+  Royalties and Other Fees/IT Stack Invoices/2026) maps every Workiz account id to its location. Used 2026-10-01 to
+  name Charleston (152619), Lehigh Valley-Poconos & Bucks County (149541), South Atlanta (155818), Nashville (119959),
+  Portland (153253), Franklin WI (153251), Northwest Indiana (139165) and North & East Indianapolis (154874); all eight
+  tokens connect and their jobs are in the right cities. CTM markets read them from `WORKIZ_TOKEN_CHARLESTON`,
+  `WORKIZ_TOKEN_LEHIGH_VALLEY` and `WORKIZ_TOKEN_SOUTH_ATLANTA` once those are added to the environment.
