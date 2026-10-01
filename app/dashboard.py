@@ -12,6 +12,8 @@ from datetime import date
 from html import escape
 
 from app.brief_render import _action_lines, _follow, _label, _rows, money, pct, status_line, title
+from app.jobs import (DEFINITIONS, booking_rows, group_rows, market_rows, missing_rows, quote_rows,
+                      quote_summary)
 
 STATUS_CLASS = {"green": "g", "yellow": "y", "red": "r", "none": "n"}
 
@@ -150,16 +152,59 @@ def _alerts(brief: dict) -> str:
     ) + "</div>"
 
 
-def render_dashboard(brief: dict, notes: str = "") -> str:
+def _jobs_tiles(reports: list[dict]) -> str:
+    totals = [r["totals"] for r in reports]
+    sold = sum(t["sold"] for t in totals)
+    decided = sum(t["decided"] for t in totals)
+    sold_amount = sum(t["sold_amount"] for t in totals)
+    no_job = sum(r["ctm_bookings"]["total"] - r["ctm_bookings"]["with_job"] for r in reports)
+    booked = sum(r["ctm_bookings"]["total"] for r in reports)
+    missing = sum(t["missing"] for t in totals)
+    specs = [
+        ("Sold", money(sold_amount), f"{sold} jobs"),
+        ("Close rate", pct(sold / decided if decided else None), f"{sold} of {decided} decided"),
+        ("Avg ticket", money(sold_amount / sold if sold else None), f"Outstanding {money(sum(t['outstanding'] for t in totals))}"),
+        ("Sold amount missing", str(missing), "past appointments at $0"),
+        ("CTM bookings, no job", str(no_job), f"of {booked} booked in CTM"),
+    ]
+    return "<div class='tiles'>" + "".join(
+        f"<div class='tile{' r' if warn else ''}'><span class='lbl'>{escape(label)}</span>"
+        f"<span class='val'>{escape(val)}</span><span class='cmp'>{escape(cmp)}</span></div>"
+        for (label, val, cmp), warn in zip(specs, (False, False, False, missing > 0, no_job > 0))
+    ) + "</div>"
+
+
+def _jobs_panel(reports: list[dict]) -> str:
+    start, today = reports[0]["start"], reports[0]["today"]
+    parts = [f"<p class='meta'>Workiz jobs created {escape(start)} to {escape(today)}, matched to CTM by phone number.</p>",
+             _jobs_tiles(reports), "<h2>Markets</h2>", _table(market_rows(reports))]
+    for r in reports:
+        parts += [f"<h2>{escape(r['market'])}: close rate by service</h2>", _table(group_rows(r["by_service"], "Service")),
+                  f"<h2>{escape(r['market'])}: close rate by lead source</h2>", _table(group_rows(r["by_source"], "Source")),
+                  f"<h2>{escape(r['market'])}: quote vs sold</h2>", f"<p class='fine'>{escape(quote_summary(r))}</p>"]
+        for heading, rows in ((None, quote_rows(r)), ("sold amount missing", missing_rows(r)),
+                              ("CTM bookings with no Workiz job", booking_rows(r))):
+            if heading:
+                parts.append(f"<h2>{escape(r['market'])}: {escape(heading)}</h2>")
+            parts.append(_table(rows) if len(rows) > 1 else "<p class='fine'>None.</p>")
+    parts.append(f"<p class='fine'>{escape(DEFINITIONS)}</p>")
+    return "<section class='panel' id='tab-jobs' hidden>" + "".join(parts) + "</section>"
+
+
+def render_dashboard(brief: dict, notes: str = "", jobs: list[dict] | None = None) -> str:
+    """`jobs`: Jobs & Revenue reports from app.jobs (one per Workiz market); without them the tab is a placeholder."""
     rows = _rows(brief)
     n = brief["numbers"]
     d = date.fromisoformat(brief["day"])
     notes_html = "".join(f"<p>{escape(p)}</p>" for p in notes.strip().splitlines() if p.strip())
+    live = {"jobs": _jobs_panel(jobs)} if jobs else {}
     upcoming_tabs = "".join(
-        f"<button role='tab' data-tab='{key}' aria-selected='false'>{escape(name)}<span class='soon'>soon</span></button>"
+        f"<button role='tab' data-tab='{key}' aria-selected='false'>{escape(name)}"
+        f"{'' if key in live else '<span class=soon>soon</span>'}</button>"
         for key, name, _, _ in UPCOMING
     )
     upcoming_panels = "".join(
+        live.get(key) or
         f"<section class='panel' id='tab-{key}' hidden><div class='placeholder'><h2>{escape(name)}</h2>"
         f"<p class='src'>Source: {escape(src)}</p><p>{escape(desc)}</p></div></section>"
         for key, name, src, desc in UPCOMING

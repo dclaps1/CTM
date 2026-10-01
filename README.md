@@ -82,7 +82,7 @@ All definitions live in `app/brief.py`, so the numbers are the same every run. I
 (calls, texts, forms and chats) to tell new leads from repeat contacts. Targets are in `Targets` in the same file.
 Use `--notes file.txt` to add commentary under the title.
 
-### Workiz (in progress)
+### Workiz: Jobs & Revenue
 
 Each franchise has its own Workiz account. Add its API token (and secret) as environment variables named
 `WORKIZ_TOKEN_<MARKET>` / `WORKIZ_SECRET_<MARKET>`, where `<MARKET>` is one of `BOSTON`, `CHARLESTON`,
@@ -91,13 +91,23 @@ Each franchise has its own Workiz account. Add its API token (and secret) as env
 
 ```bash
 python -m app.cli workiz-probe --market "Greater Boston"   # test the connection, show which job fields are filled
+python -m app.cli jobs --market "Greater Boston" --days 60 # Jobs & Revenue report (Markdown; --json for raw)
+python -m app.cli brief --dashboard dashboard.html         # the Jobs & Revenue tab fills in for every market with a token
 ```
 
-Plan once a market connects (Greater Boston first): match Workiz jobs to CTM contacts by phone number; report
-quote vs sold, jobs whose sold amount was never entered, franchise owner close rate overall and by service,
-CTM bookings with no Workiz job; then add a Jobs & Revenue tab to the dashboard. The Workiz API documents
-`job/all`, `job/get/{UUID}`, `lead/all` and `team/all`; check the probe output for amount, status, job type and
-phone fields before building on them.
+The report matches Workiz jobs to CTM contacts by phone number (last 10 digits) and shows, per market: sold
+amount, close rate overall, by service and by lead source, quote vs sold, jobs whose sold amount was never
+entered, and CTM bookings with no Workiz job. Definitions are at the top of `app/jobs.py`:
+
+- **Sold**: not canceled and the job total is above $0. **Close rate**: sold ÷ decided (sold, canceled, or
+  appointment date passed). Future appointments and in-progress jobs with no amount yet are left out.
+- **Sold amount missing**: not canceled or in progress, $0, appointment date passed.
+- **Quote**: the amount the call center booked in CTM (sale value), else the largest $ in the call summaries.
+  So quote vs sold only covers jobs that came through the call center.
+- Workiz has no field for who ran the estimate, so close rate is per franchise (market), not per person.
+
+Workiz API notes: `job/all` counts `offset` in pages, `lead/all` in records; `records` is capped at 100;
+`job/all` returns open jobs only unless `only_open=false`; bursts of calls get HTTP 429 for a while.
 
 ## Configuration
 
@@ -140,9 +150,10 @@ app/
   brief_render.py brief → email-safe HTML or Markdown
   dashboard.py    daily dashboard page (tabs, charts) from a brief
   workiz_client.py Workiz API client, one token per market
+  jobs.py         Jobs & Revenue report: Workiz jobs matched to CTM (close rate, quote vs sold, missing amounts)
   main.py         web routes (dashboard, calls, recordings, reviews, callbacks, admin, webhook)
   auth.py         password hashing and role checks
-  cli.py          sync / create-user / agents / brief commands
+  cli.py          sync / create-user / agents / brief / jobs / workiz-probe commands
   templates/      Jinja pages
   static/         CSS and charts
 tests/            API client, sync, metrics and web tests (CTM is mocked)

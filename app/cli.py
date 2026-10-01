@@ -6,6 +6,8 @@
     python -m app.cli agents
     python -m app.cli brief [--date 2026-09-30] [--html brief.html] [--markdown brief.md] [--json brief.json]
                             [--dashboard dashboard.html] [--notes notes.txt]
+    python -m app.cli jobs [--market "Greater Boston"] [--days 60] [--markdown jobs.md] [--json jobs.json]
+    python -m app.cli workiz-probe [--market "Greater Boston"] [--days 30]
 """
 from __future__ import annotations
 
@@ -21,9 +23,10 @@ from sqlalchemy import select
 
 from app import db
 from app.auth import hash_password
-from app.brief import build_brief, load_activity
+from app.brief import HISTORY_DAYS, build_brief, load_activity
 from app.brief_render import render_html, render_markdown
 from app.dashboard import render_dashboard
+from app.jobs import JOBS_DAYS, build_jobs_report, fetch_workiz, render_jobs_markdown
 from app.workiz_client import MARKET_ENV, WorkizClient, WorkizError, configured_markets
 from app.config import get_settings
 from app.ctm_client import CTMClient
@@ -51,6 +54,11 @@ def main(argv: list[str] | None = None) -> int:
     br.add_argument("--json", type=Path, help="write the raw numbers and action lists here")
     br.add_argument("--dashboard", type=Path, help="write the full dashboard page (tabs, charts) here")
     br.add_argument("--notes", type=Path, help="text file with commentary to put under the title")
+    jb = sub.add_parser("jobs", help="Workiz jobs & revenue report, matched to CTM by phone number")
+    jb.add_argument("--market", help="one market, e.g. 'Greater Boston' (default: every configured market)")
+    jb.add_argument("--days", type=int, default=JOBS_DAYS, help="jobs created in this many days (max 90)")
+    jb.add_argument("--json", type=Path, help="write the raw report here")
+    jb.add_argument("--markdown", type=Path, help="write Markdown here (printed when no output is given)")
     wp = sub.add_parser("workiz-probe", help="test Workiz connections and show what job data comes back")
     wp.add_argument("--market", help="one market, e.g. 'Greater Boston' (default: every configured market)")
     wp.add_argument("--days", type=int, default=30, help="look at jobs from this many days back")
@@ -59,6 +67,8 @@ def main(argv: list[str] | None = None) -> int:
     settings = get_settings()
     if args.command == "brief":
         return run_brief(args, settings)
+    if args.command == "jobs":
+        return run_jobs(args, settings)
     if args.command == "workiz-probe":
         return run_workiz_probe(args)
     db.configure(settings.database_url)
@@ -122,18 +132,65 @@ def run_workiz_probe(args: argparse.Namespace) -> int:
     return 0
 
 
+def jobs_reports(act, start: date, today: date, market: str | None = None) -> list[dict]:
+    """One Jobs & Revenue report per market with a Workiz token. A market whose Workiz call fails is skipped
+    with a warning, so the rest still runs."""
+    reports = []
+    for name, token in configured_markets().items():
+        if market and name.lower() != market.lower():
+            continue
+        try:
+            with WorkizClient(token) as client:
+                jobs, leads = fetch_workiz(client, start)
+        except WorkizError as exc:
+            print(f"Workiz {name}: {exc}", file=sys.stderr)
+            continue
+        reports.append(build_jobs_report(name, jobs, leads, act, start, today))
+    return reports
+
+
+def run_jobs(args: argparse.Namespace, settings) -> int:
+    tz = ZoneInfo(settings.timezone)
+    today = datetime.now(tz).date()
+    days = max(1, min(args.days, HISTORY_DAYS))
+    start = today - timedelta(days=days - 1)
+    if not configured_markets():
+        print("No Workiz token found. Set WORKIZ_TOKEN_<MARKET>; see README.", file=sys.stderr)
+        return 1
+    with CTMClient.from_settings(settings) as client:
+        act = load_activity(client, today, tz)
+    reports = jobs_reports(act, start, today, args.market)
+    if not reports:
+        print("No Workiz market could be read.", file=sys.stderr)
+        return 1
+    if args.json:
+        args.json.write_text(json.dumps(reports, indent=2, default=str))
+    if args.markdown or not args.json:
+        text = render_jobs_markdown(reports)
+        if args.markdown:
+            args.markdown.write_text(text)
+        else:
+            print(text)
+    return 0
+
+
 def run_brief(args: argparse.Namespace, settings) -> int:
     tz = ZoneInfo(settings.timezone)
     day = date.fromisoformat(args.date) if args.date else datetime.now(tz).date() - timedelta(days=1)
     with CTMClient.from_settings(settings) as client:
-        brief = build_brief(load_activity(client, day, tz), day)
+        act = load_activity(client, day, tz)
+    brief = build_brief(act, day)
     notes = args.notes.read_text() if args.notes else ""
     if args.json:
         args.json.write_text(json.dumps(brief, indent=2, default=str))
     if args.html:
         args.html.write_text(render_html(brief, notes))
     if args.dashboard:
-        args.dashboard.write_text(render_dashboard(brief, notes))
+        jobs = None
+        if configured_markets():
+            today = datetime.now(tz).date()
+            jobs = jobs_reports(act, today - timedelta(days=JOBS_DAYS - 1), today)
+        args.dashboard.write_text(render_dashboard(brief, notes, jobs))
     if args.markdown or not (args.json or args.html or args.dashboard):
         text = render_markdown(brief, notes)
         if args.markdown:
