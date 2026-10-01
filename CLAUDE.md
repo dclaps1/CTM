@@ -48,3 +48,7 @@
   API token from its Workiz admin (Settings → Developer/API). It is skipped with a warning until then.
 - `WORKIZ_SECRET_PITSSBURGH` is misspelled (token is `WORKIZ_TOKEN_PITTSBURGH`). Harmless today because the code
   only reads tokens, but rename it to `WORKIZ_SECRET_PITTSBURGH` if secrets are ever used.
+- SW Georgia (Workiz-only, not on CTM; token `WORKIZ_TOKEN_SW_GEORGIA`, no secret). Checked 2026-10-01: connects
+  and works (12 team members). Last 12 months: 429 jobs (373 Done, 33 Canceled, 16 In progress), about $651k closed
+  revenue, newest job created 2026-09-30. Jobs are Leesburg, Albany, Thomasville, Cairo, Bainbridge, Valdosta and
+  Americus GA. No "done pending approval" jobs.
