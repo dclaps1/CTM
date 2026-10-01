@@ -22,6 +22,11 @@
   as sold once it has revenue, so these count as closed today. Ask Dan whether they should wait until approved.
 - South Kansas City: Dan confirmed (2026-10-01) that `WORKIZ_TOKEN_KANSAS_CITY` is the South Kansas City franchise,
   so `MARKET_ENV` maps `KANSAS_CITY` to it. It has 1 "done pending approval" job (same question as Greensboro).
+- South Atlanta (CTM market) has no Workiz token. Neither Atlanta token is it (checked 2026-10-01, last 12 months):
+  `ATLANTA_MARIETTA_WOODSTOCK` is the NW suburbs (Alpharetta, Marietta, Powder Springs, Canton, Woodstock, Smyrna;
+  only 6 of 605 jobs south of the city) and `NORTH_ATLANTA` is the NE suburbs (Alpharetta, Cumming, Gainesville,
+  Lawrenceville, Duluth; none south). Do not map either to South Atlanta. Ask Dan whether South Atlanta has its own
+  Workiz account (McDonough, Stockbridge, Fayetteville, Peachtree City, Newnan) and get its token.
 - NW Arkansas (Workiz-only, not on CTM; token `WORKIZ_TOKEN_NW_ARKANSAS`, connection checked 2026-10-01 and working,
   225 jobs in the last 12 months, 13 team members, 46 leads). Jobs are Fayetteville, Bentonville, Bella Vista, Rogers,
   Springdale and Fort Smith. It has 18 "done pending approval / Payment Pending" jobs in 2026 (same question as
