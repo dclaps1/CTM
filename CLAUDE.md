@@ -52,3 +52,9 @@
   and works (12 team members). Last 12 months: 429 jobs (373 Done, 33 Canceled, 16 In progress), about $651k closed
   revenue, newest job created 2026-09-30. Jobs are Leesburg, Albany, Thomasville, Cairo, Bainbridge, Valdosta and
   Americus GA. No "done pending approval" jobs.
+- Full token check 2026-10-01 (84 Workiz tokens). HTTP 401 (token rejected, needs a fresh API token from that
+  location's Workiz admin): Bergen County, Central Florida, Charlotte Matthews, Henderson Las Vegas, Houston Sugar
+  Land, Wesley Chapel Zephyrhills. Connect but no jobs in the last 60 days (ask Dan if closed or moved accounts):
+  Fort Worth Arlington (last job Dec 2025), North Orlando (Nov 7 2025), North Tampa (Feb 18 2026), Reno Carson City
+  (Apr 28 2026), West Raleigh (Jun 4 2026), SW Connecticut (Jul 23 2026). CTM markets with no Workiz token:
+  Charleston, South Atlanta, Lehigh Valley-Poconos.
