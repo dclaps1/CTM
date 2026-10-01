@@ -75,3 +75,15 @@
 - The call center (Playbook Call Center Co, "PCC") does not get all the calls for its markets' customers (Dan,
   2026-10-01). Owners and lead services also book straight into Workiz, so Workiz jobs with no CTM history are
   normal; judge the call center only on contacts it handled, and do not read the CTM/Workiz gap as lost work.
+- Workiz account workbook (`workiz_account_mappings`, uploaded 2026-10-01; MASTER and "in" tabs, ~130 accounts with
+  franchisee ids, Workiz account ids, API token and secret). Never commit it or copy tokens from it into the repo.
+  It holds 24 locations with working tokens that are not yet in the environment (checked 2026-10-01, all connect):
+  Rochester, Chicago West, Minneapolis Southwest, Lakeshore, Delaware County & NW Philadelphia, Greater Kalamazoo,
+  Greater Memphis, North Shore Boston, Toledo, SW & South Central Jersey, Myrtle Beach, Monroe & Downriver, Greater
+  Houston - North Central & South East (a different account from Greater Houston North), Central Oregon, Greater
+  Mobile & Baldwin County, South Shore Boston, SE Dallas, Greater Miami & Florida Keys, The Treasure Coast, Northeast
+  Sacramento, Lake Worth-Boynton Beach, Concord, Kenosha-Racine, Boston Metro South. Toledo has jobs in Ann Arbor
+  (a CTM market), so watch for overlap. No token in the workbook: Lee's Summit - Belton, NW Texas, North San Antonio,
+  O'Fallon-Wentzville, McKinney, Raleigh, Katy, North Salt Lake City, Dallas and Mesquite. The six rejected tokens
+  (Bergen County, Central Florida, Charlotte Matthews, Henderson Las Vegas, Houston Sugar Land, Wesley Chapel
+  Zephyrhills) are the same in the workbook, so they still need fresh tokens.
