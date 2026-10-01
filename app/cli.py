@@ -8,6 +8,7 @@
                             [--dashboard dashboard.html] [--notes notes.txt]
     python -m app.cli jobs [--market "Greater Boston"] [--pdf jobs.pdf] [--html jobs.html] [--markdown jobs.md]
     python -m app.cli workiz-probe [--market "Greater Boston"] [--days 30]
+    python -m app.cli pcc [--days 90] [--pdf pcc.pdf] [--html pcc.html] [--markdown pcc.md] [--json pcc.json]
 """
 from __future__ import annotations
 
@@ -24,10 +25,11 @@ from sqlalchemy import select
 
 from app import db
 from app.auth import hash_password
-from app.brief import build_brief, load_activity
+from app.brief import MARKETS, build_brief, load_activity
 from app.brief_render import render_html, render_markdown
 from app.dashboard import render_dashboard, render_jobs_report
 from app.jobs import build_jobs_report, fetch_workiz, render_jobs_markdown
+from app.pcc import PCC_DAYS, build_pcc_report, render_pcc_html, render_pcc_markdown
 from app.workiz_client import MARKET_ENV, WorkizClient, WorkizError, configured_markets
 from app.config import get_settings
 from app.ctm_client import CTMClient
@@ -64,6 +66,12 @@ def main(argv: list[str] | None = None) -> int:
     wp = sub.add_parser("workiz-probe", help="test Workiz connections and show what job data comes back")
     wp.add_argument("--market", help="one market, e.g. 'Greater Boston' (default: every configured market)")
     wp.add_argument("--days", type=int, default=30, help="look at jobs from this many days back")
+    pc = sub.add_parser("pcc", help="what happened to every job the call center booked (CTM bookings followed into Workiz)")
+    pc.add_argument("--days", type=int, default=PCC_DAYS, help="bookings from this many days back")
+    pc.add_argument("--json", type=Path, help="write the raw report here")
+    pc.add_argument("--markdown", type=Path, help="write Markdown here (printed when no output is given)")
+    pc.add_argument("--html", type=Path, help="write the printable report (HTML) here")
+    pc.add_argument("--pdf", type=Path, help="write the report as a PDF (needs Chromium or Chrome installed)")
     args = parser.parse_args(argv)
 
     settings = get_settings()
@@ -73,6 +81,8 @@ def main(argv: list[str] | None = None) -> int:
         return run_jobs(args, settings)
     if args.command == "workiz-probe":
         return run_workiz_probe(args)
+    if args.command == "pcc":
+        return run_pcc(args, settings)
     db.configure(settings.database_url)
     db.init_db()
 
@@ -173,6 +183,43 @@ def run_jobs(args: argparse.Namespace, settings) -> int:
             write_pdf(page, args.pdf)
     if args.markdown or not (args.json or args.html or args.pdf):
         text = render_jobs_markdown(reports)
+        if args.markdown:
+            args.markdown.write_text(text)
+        else:
+            print(text)
+    return 0
+
+
+def run_pcc(args: argparse.Namespace, settings) -> int:
+    tz = ZoneInfo(settings.timezone)
+    today = datetime.now(tz).date()
+    tokens = configured_markets()
+    workiz = {}
+    for market, _ in MARKETS:
+        if market not in tokens:
+            print(f"Workiz {market}: no token", file=sys.stderr)
+            continue
+        try:
+            with WorkizClient(tokens[market]) as client:
+                workiz[market] = fetch_workiz(client, today)
+        except WorkizError as exc:
+            print(f"Workiz {market}: {exc}", file=sys.stderr)
+    if not workiz:
+        print("No call-center market could be read from Workiz.", file=sys.stderr)
+        return 1
+    with CTMClient.from_settings(settings) as client:
+        act = load_activity(client, today, tz, history_days=args.days)
+    report = build_pcc_report(act, workiz, today, args.days)
+    if args.json:
+        args.json.write_text(json.dumps(report, indent=2, default=str))
+    if args.html or args.pdf:
+        page = render_pcc_html(report)
+        if args.html:
+            args.html.write_text(page)
+        if args.pdf:
+            write_pdf(page, args.pdf)
+    if args.markdown or not (args.json or args.html or args.pdf):
+        text = render_pcc_markdown(report)
         if args.markdown:
             args.markdown.write_text(text)
         else:

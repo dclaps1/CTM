@@ -115,6 +115,19 @@ Definitions are at the top of `app/jobs.py`:
 Workiz API notes: `job/all` counts `offset` in pages, `lead/all` in records; `records` is capped at 100;
 `job/all` returns open jobs only unless `only_open=false`; bursts of calls get HTTP 429 for a while.
 
+### Call-center follow-through
+
+`python -m app.cli pcc` follows every job the call center booked in CTM (last 90 days by default) into that market's
+Workiz account, matched by phone number, and shows how each one ended: Sold, Done at $0, Canceled, Not closed out
+(appointment passed, still open), Scheduled, or never reached Workiz. Totals by market and by agent: share that reached
+Workiz, close rate, sold revenue, and sold total vs the call center's quote. Then the lists to work: bookings with no
+Workiz job, jobs still open after the appointment, and jobs marked Done at $0. Only call-center bookings are counted,
+because the call center does not get every call for its markets. Definitions are at the top of `app/pcc.py`.
+
+```bash
+python -m app.cli pcc --pdf pcc.pdf          # or --html / --markdown / --json; --days 30 for a shorter window
+```
+
 ## Configuration
 
 All settings are environment variables. `.env` is read automatically. See [`.env.example`](.env.example).
@@ -157,9 +170,10 @@ app/
   dashboard.py    daily dashboard page (tabs, charts) from a brief
   workiz_client.py Workiz API client, one token per market
   jobs.py         Jobs & Revenue report: Workiz jobs matched to CTM (close rate, quote vs sold, missing amounts)
+  pcc.py          call-center follow-through: each CTM booking followed into Workiz (reached, sold, still open)
   main.py         web routes (dashboard, calls, recordings, reviews, callbacks, admin, webhook)
   auth.py         password hashing and role checks
-  cli.py          sync / create-user / agents / brief / jobs / workiz-probe commands
+  cli.py          sync / create-user / agents / brief / jobs / pcc / workiz-probe commands
   templates/      Jinja pages
   static/         CSS and charts
 tests/            API client, sync, metrics and web tests (CTM is mocked)
