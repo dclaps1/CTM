@@ -21,8 +21,10 @@ Definitions (the same every run):
 - With no job, a Workiz lead for the same customer (same keys, any date) decides the outcome by its status:
   Scheduled lead, no job (scheduled or rescheduled); Lead lost or canceled; Open lead, not worked (anything else).
   With no lead either: Not in Workiz.
-- Reached Workiz = bookings with a matched job ÷ bookings. Close rate = Sold ÷ (Sold + Done at $0 + Canceled + Not
-  closed out); scheduled jobs are left out. Sold vs quote compares sold totals with PCC's quote on jobs that have both.
+- Reached Workiz = bookings with a matched job ÷ bookings. Close rate = booked → sold: Sold ÷ decided, where jobs
+  still open after the appointment are judged from the evidence on them (app/outcomes.py): paid counts as sold,
+  estimates awaiting approval, commercial unit jobs and work moved to a later job are left out. Shown as the best
+  estimate, with `close_range` (low, high). Sold vs quote compares sold totals with PCC's quote on jobs that have both.
 """
 from __future__ import annotations
 
@@ -33,6 +35,8 @@ from datetime import date, timedelta
 
 from app.brief import _STATE_SUFFIX, MARKETS, Activity, first_name, is_booked_record, phone
 from app.jobs import _day, _money, _name, _pct, _status, amount, digits10, job_phones, outcome
+from app.outcomes import LABELS as EVIDENCE_LABELS
+from app.outcomes import by_client, close_rates, open_job_evidence
 
 PCC_DAYS = 90
 MATCH_DAYS = 14
@@ -42,7 +46,6 @@ SCHEDULED_LEAD, OPEN_LEAD, LOST_LEAD, NOT_IN_WORKIZ = (
     "Scheduled lead, no job", "Open lead, not worked", "Lead lost or canceled", "Not in Workiz")
 OUTCOMES = ["Sold", "Done at $0", "Canceled", "Not closed out", "Scheduled",
             SCHEDULED_LEAD, OPEN_LEAD, LOST_LEAD, NOT_IN_WORKIZ]
-DECIDED = ("Sold", "Done at $0", "Canceled", "Not closed out")
 NO_JOB = (SCHEDULED_LEAD, OPEN_LEAD, LOST_LEAD, NOT_IN_WORKIZ)
 
 
@@ -131,20 +134,25 @@ def _in_window(b: dict, job: dict) -> bool:
     return created >= b["booked"] - timedelta(days=1) or (_day(job.get("JobDateTime")) or date.min) >= b["booked"]
 
 
-def match_booking(b: dict, jobs: list[dict], leads: list[dict], today: date) -> dict:
+def match_booking(b: dict, jobs: list[dict], leads: list[dict], today: date, clients: dict | None = None) -> dict:
     rank = {"phone": 0, "email": 1, "name": 2}
     hits = [(rank[k], str(j.get("CreatedDate")), k, j) for j in jobs if _in_window(b, j) and (k := _match_key(b, j))]
     if not hits:
         found = sorted((rank[k], str(x.get("CreatedDate")), k, x) for x in leads if (k := _match_key(b, x)))
         if not found:
-            return {**b, "outcome": NOT_IN_WORKIZ, "matched_by": None, "job": None, "lead": None}
+            return {**b, "outcome": NOT_IN_WORKIZ, "evidence": None, "matched_by": None, "job": None, "lead": None}
         _, _, key, lead = max((f for f in found if f[0] == found[0][0]), key=lambda f: f[1])  # best key, latest lead
-        return {**b, "outcome": _lead_outcome(lead), "matched_by": key, "job": None,
+        return {**b, "outcome": _lead_outcome(lead), "evidence": None, "matched_by": key, "job": None,
                 "lead": {"serial": lead.get("SerialId"), "status": str(lead.get("Status") or "—"),
                          "created_by": str(lead.get("CreatedBy") or "—"),
                          "when": str(lead.get("LeadDateTime") or "")[:10]}}
     _, _, key, j = min(hits, key=lambda h: (h[0], h[1]))
-    return {**b, "outcome": _job_outcome(j, today), "matched_by": key, "lead": None,
+    result = _job_outcome(j, today)
+    evidence = None
+    if result == "Not closed out":
+        clients = clients if clients is not None else by_client(jobs)
+        evidence = open_job_evidence(j, clients.get(j.get("ClientId") or j.get("UUID"), [j]))
+    return {**b, "outcome": result, "evidence": evidence, "matched_by": key, "lead": None,
             "job": {"serial": j.get("SerialId"), "status": " / ".join(x for x in (j.get("Status"), j.get("SubStatus")) if x),
                     "appt": str(j.get("JobDateTime") or "")[:10], "service": _name(j, "JobType"),
                     "created_by": str(j.get("CreatedBy") or "—"), "total": amount(j.get("JobTotalPrice")),
@@ -155,7 +163,9 @@ def summarize(rows: list[dict]) -> dict:
     counts = Counter(r["outcome"] for r in rows)
     n = len(rows)
     reached = n - sum(counts[o] for o in NO_JOB)
-    decided = sum(counts[o] for o in DECIDED)
+    evidence = Counter({"Sold": "sold", "Done at $0": "done0", "Canceled": "canceled", "Scheduled": "pending"}.get(
+        r["outcome"]) or r["evidence"] for r in rows if r["job"])
+    rates = close_rates(evidence)
     pairs = [(r["quote"], r["job"]["total"]) for r in rows if r["outcome"] == "Sold" and r["quote"]]
     quoted, sold = sum(q for q, _ in pairs), sum(s for _, s in pairs)
     return {
@@ -163,7 +173,10 @@ def summarize(rows: list[dict]) -> dict:
         "outcomes": {o: counts[o] for o in OUTCOMES},
         "reached_workiz": reached,
         "reach_rate": reached / n if n else None,
-        "close_rate": counts["Sold"] / decided if decided else None,
+        "close_rate": rates["best"],
+        "close_range": (rates["low"], rates["high"]),
+        "sold_jobs": rates["sold"],
+        "open_evidence": {EVIDENCE_LABELS[k]: v for k, v in evidence.items() if k in EVIDENCE_LABELS},
         "sold_revenue": round(sum(r["job"]["total"] for r in rows if r["outcome"] == "Sold"), 2),
         "quote_pairs": len(pairs),
         "sold_vs_quote": sold / quoted if quoted else None,
@@ -175,7 +188,8 @@ def build_pcc_report(act: Activity, workiz: dict[str, tuple[list[dict], list[dic
                      days: int = PCC_DAYS) -> dict:
     """`workiz` maps each call-center market to (jobs, leads); markets missing from it are listed as not read."""
     start = today - timedelta(days=days - 1)
-    rows = [match_booking(b, *workiz[b["market"]], today) for b in pcc_bookings(act, start, today)
+    clients = {m: by_client(jobs) for m, (jobs, _) in workiz.items()}
+    rows = [match_booking(b, *workiz[b["market"]], today, clients[b["market"]]) for b in pcc_bookings(act, start, today)
             if b["market"] in workiz]
     markets = [name for name, _ in MARKETS]
 
@@ -199,14 +213,16 @@ DEFINITIONS = (
     "Only bookings the call center made are counted; the call center does not get every call for its markets. "
     "A booking is matched to a Workiz job in its market by phone, else email, else first and last name, created from "
     f"{EARLY_DAYS} days before (if the appointment is not before the booking) to {MATCH_DAYS} days after the booking. "
-    "With no job, the customer's Workiz lead status decides the outcome. Close rate = Sold ÷ (Sold + Done at $0 + Canceled + Not closed out); scheduled jobs are left out. "
+    "With no job, the customer's Workiz lead status decides the outcome. Close rate (booked → sold) = sold ÷ decided; jobs "
+    "still open after the appointment are judged from their payments, notes and line items (a paid open job counts as "
+    "sold), and estimates awaiting approval and scheduled jobs are left out. "
     "Sold vs quote compares the sold total with the call center's quote on jobs that have both."
 )
 
 
 def summary_rows(groups: list[dict], label: str, total: dict | None = None) -> list[list[str]]:
     head = [label, "Bookings", "Reached Workiz", "Sold", "Done at $0", "Canceled", "Not closed out", "Scheduled",
-            "Scheduled lead, no job", "Open lead", "Lead lost", "Not in Workiz", "Close rate", "Sold revenue",
+            "Scheduled lead, no job", "Open lead", "Lead lost", "Not in Workiz", "Booked → sold", "Sold revenue",
             "Sold vs quote"]
     body = [{"name": g["name"], **g} for g in groups] + ([{"name": "Total", **total}] if total else [])
     return [head] + [[
@@ -225,7 +241,8 @@ def work_rows(r: dict, outcomes: tuple[str, ...]) -> list[list[str]]:
     def workiz(x: dict) -> str:
         how = f" (matched by {x['matched_by']})" if x["matched_by"] not in (None, "phone") else ""
         if x["job"]:
-            return f"Job #{x['job']['serial']} {x['job']['status']}, appt {x['job']['appt']}{how}"
+            seen = f" · {EVIDENCE_LABELS[x['evidence']]}" if x.get("evidence") else ""
+            return f"Job #{x['job']['serial']} {x['job']['status']}, appt {x['job']['appt']}{seen}{how}"
         if x["lead"]:
             when = f", {x['lead']['when']}" if x["lead"]["when"] else ""
             return f"Lead #{x['lead']['serial']} {x['lead']['status']}{when}, by {x['lead']['created_by']}{how}"
@@ -252,7 +269,8 @@ def headline(r: dict) -> list[tuple[str, str, str]]:
     return [
         ("Call-center bookings", str(t["bookings"]), f"last {r['days']} days"),
         ("Reached Workiz", _pct(t["reach_rate"]), f"{t['reached_workiz']} of {t['bookings']}"),
-        ("Close rate", _pct(t["close_rate"]), f"{t['outcomes']['Sold']} sold"),
+        ("Booked → sold", _pct(t["close_rate"]),
+         f"{t['sold_jobs']} sold; range {_pct(t['close_range'][0])}–{_pct(t['close_range'][1])}"),
         ("Sold revenue", _money(t["sold_revenue"]), "from call-center bookings"),
     ]
 

@@ -10,8 +10,10 @@ Definitions (the same every run):
 
 - Completed: marked Done or "done pending approval" with a total above $0. Its completion date is the day its
   status last changed. Revenue = completed job totals, counted on the completion date.
-- Close rate: of the jobs *booked* (created in Workiz) in the rate window, sold ÷ decided. Sold = completed.
-  Decided = sold, canceled, or the appointment date has passed. Future and in-progress jobs are left out.
+- Close rate: of the jobs *booked* (created in Workiz) in the rate window, sold ÷ decided. Sold = completed with a
+  price. Jobs still open after the appointment are judged from the evidence on them (see app/outcomes.py): paid
+  counts as sold; estimates awaiting approval, commercial unit jobs and work moved to a later job are left out; the
+  rest count as decided. The rate shown is the best estimate; `close_range` gives low and high.
 - Not closed out: the appointment date has passed but the job is still open (not Done, canceled or in
   progress), or it is Done at $0. These count as decided, not sold.
 - Owed: open balance on a completed job, aged from the day it was completed.
@@ -137,16 +139,19 @@ def _job_row(job: dict) -> dict:
 # -- measures ------------------------------------------------------------------------------------
 
 
-def _group_stats(booked: list[dict], completed: list[dict], today: date) -> dict:
-    """booked: jobs created in the rate window; completed: jobs completed in it."""
-    outs = [outcome(j, today) for j in booked]
-    sold, decided = outs.count("sold"), sum(o != "pending" for o in outs)
+def _group_stats(booked: list[dict], completed: list[dict], today: date, clients: dict | None = None) -> dict:
+    """booked: jobs created in the rate window; completed: jobs completed in it. Open jobs past their appointment are
+    judged from the evidence on them (app.outcomes); `clients` maps client -> all of its jobs in the account."""
+    from app.outcomes import booked_outcomes, by_client, close_rates
+
+    rates = close_rates(booked_outcomes(booked, clients if clients is not None else by_client(booked), today))
     revenue = sum(amount(j.get("JobTotalPrice")) for j in completed)
     return {
         "booked": len(booked),
-        "sold": sold,
-        "decided": decided,
-        "close_rate": sold / decided if decided else None,
+        "sold": rates["sold"],
+        "decided": rates["decided"],
+        "close_rate": rates["best"],
+        "close_range": (rates["low"], rates["high"]),
         "completed": len(completed),
         "revenue": round(revenue, 2),
         "avg_ticket": round(revenue / len(completed), 2) if completed else None,
@@ -155,21 +160,24 @@ def _group_stats(booked: list[dict], completed: list[dict], today: date) -> dict
     }
 
 
-def _breakdown(booked: list[dict], completed: list[dict], key, today: date) -> list[dict]:
+def _breakdown(booked: list[dict], completed: list[dict], key, today: date, clients: dict | None = None) -> list[dict]:
     names = {key(j) for j in booked + completed}
-    rows = [{"name": n, **_group_stats([j for j in booked if key(j) == n], [j for j in completed if key(j) == n], today)}
+    rows = [{"name": n, **_group_stats([j for j in booked if key(j) == n], [j for j in completed if key(j) == n], today,
+                                       clients)}
             for n in names]
     return sorted(rows, key=lambda r: (-r["revenue"], -r["booked"], r["name"]))
 
 
-def _fold(rows: list[dict], booked: list[dict], completed: list[dict], key, today: date, what: str) -> list[dict]:
+def _fold(rows: list[dict], booked: list[dict], completed: list[dict], key, today: date, what: str,
+          clients: dict | None = None) -> list[dict]:
     """Keep rows with at least MIN_JOBS bookings or 5% of revenue; fold the rest into one "Other" row."""
     total = sum(r["revenue"] for r in rows) or 1
     keep = [r for r in rows if r["booked"] >= MIN_JOBS or r["revenue"] >= 0.05 * total]
     small = {r["name"] for r in rows} - {r["name"] for r in keep}
     if len(small) < 2:
         return rows
-    other = _group_stats([j for j in booked if key(j) in small], [j for j in completed if key(j) in small], today)
+    other = _group_stats([j for j in booked if key(j) in small], [j for j in completed if key(j) in small], today,
+                         clients)
     return keep + [{"name": f"Other {what} ({len(small)})", **other, "folded": sorted(small)}]
 
 
@@ -286,15 +294,19 @@ def build_jobs_report(market: str, jobs: list[dict], leads: list[dict], act: Act
         return [j for j in jobs if _in(completed_on(j), s, e)]
 
     rate_booked, rate_done = booked_in(rate_start, today), completed_in(rate_start, today)
-    rates, prior_rates = _group_stats(rate_booked, rate_done, today), \
-        _group_stats(booked_in(rate_prior_start, rate_prior_end), completed_in(rate_prior_start, rate_prior_end), today)
+    from app.outcomes import by_client
+
+    clients = by_client(jobs)
+    rates, prior_rates = _group_stats(rate_booked, rate_done, today, clients), \
+        _group_stats(booked_in(rate_prior_start, rate_prior_end), completed_in(rate_prior_start, rate_prior_end), today,
+                     clients)
     period_done, prior_done = completed_in(period_start, today), completed_in(prior_start, prior_end)
 
     flood_parts = _breakdown([j for j in rate_booked if source_family(j) == FLOOD_IT],
                              [j for j in rate_done if source_family(j) == FLOOD_IT],
-                             lambda j: _name(j, "JobSource"), today)
-    by_source = _fold(_breakdown(rate_booked, rate_done, source_family, today), rate_booked, rate_done,
-                      source_family, today, "sources")
+                             lambda j: _name(j, "JobSource"), today, clients)
+    by_source = _fold(_breakdown(rate_booked, rate_done, source_family, today, clients), rate_booked, rate_done,
+                      source_family, today, "sources", clients)
     for s in by_source:
         s["parts"] = flood_parts if s["name"] == FLOOD_IT and len(flood_parts) > 1 else []
     service = lambda j: _name(j, "JobType")  # noqa: E731
@@ -314,8 +326,8 @@ def build_jobs_report(market: str, jobs: list[dict], leads: list[dict], act: Act
         "rates": rates,
         "prior_rates": prior_rates,
         "monthly": _monthly(jobs, today),
-        "by_service": _fold(_breakdown(rate_booked, rate_done, service, today), rate_booked, rate_done, service,
-                            today, "services"),
+        "by_service": _fold(_breakdown(rate_booked, rate_done, service, today, clients), rate_booked, rate_done,
+                            service, today, "services", clients),
         "by_source": by_source,
         "owed": _owed(jobs, today),
         "cleanup": _cleanup(jobs, today),
@@ -481,7 +493,8 @@ def work_lists(r: dict) -> list[tuple[str, list[list[str]]]]:
 
 DEFINITIONS = (
     "Revenue = jobs marked Done (or done, waiting for payment) with a total above $0, counted on the day they were "
-    "completed. Close rate = of jobs booked in the window, sold ÷ decided (sold, canceled, or appointment passed); "
+    "completed. Close rate = of jobs booked in the window, sold ÷ decided; jobs still open after the appointment are judged "
+    "from their payments, notes and line items, and estimates awaiting approval are left out; "
     "future and in-progress jobs are left out. Owed = open balance on completed jobs, aged from completion. "
     "Days are medians, from the day the job was booked in Workiz. Flood It sources are combined, with each "
     "shown underneath; small sources and services are grouped as Other. Call-center bookings are matched to Workiz by phone number."
