@@ -41,3 +41,10 @@
   the token with HTTP 401, while other markets connect fine with the same code. Dan thinks this location may be
   closed. Come back to it: confirm with Dan whether it is closed; if so, remove its token/secret so it stops
   appearing (it is skipped with a warning today); if not, get a fresh API token from its Workiz admin.
+- Charlotte Matthews (Workiz-only, not on CTM; token `WORKIZ_TOKEN_CHARLOTTE_MATTHEWS`, plus a secret). Checked
+  2026-10-01: Workiz rejects the token with HTTP 401 on both `team/all` and `job/all`, while Greensboro connects
+  fine with the same code at the same time. The token looks well formed (36 chars, `api_` prefix, no stray
+  whitespace or quotes), so it is most likely revoked, regenerated, or copied from the wrong account. Get a fresh
+  API token from its Workiz admin (Settings → Developer/API). It is skipped with a warning until then.
+- `WORKIZ_SECRET_PITSSBURGH` is misspelled (token is `WORKIZ_TOKEN_PITTSBURGH`). Harmless today because the code
+  only reads tokens, but rename it to `WORKIZ_SECRET_PITTSBURGH` if secrets are ever used.
