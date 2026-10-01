@@ -24,6 +24,7 @@ from app.auth import hash_password
 from app.brief import build_brief, load_activity
 from app.brief_render import render_html, render_markdown
 from app.dashboard import render_dashboard
+from app.workiz_client import MARKET_ENV, WorkizClient, WorkizError, configured_markets
 from app.config import get_settings
 from app.ctm_client import CTMClient
 from app.models import ROLES, Agent, User
@@ -50,11 +51,16 @@ def main(argv: list[str] | None = None) -> int:
     br.add_argument("--json", type=Path, help="write the raw numbers and action lists here")
     br.add_argument("--dashboard", type=Path, help="write the full dashboard page (tabs, charts) here")
     br.add_argument("--notes", type=Path, help="text file with commentary to put under the title")
+    wp = sub.add_parser("workiz-probe", help="test Workiz connections and show what job data comes back")
+    wp.add_argument("--market", help="one market, e.g. 'Greater Boston' (default: every configured market)")
+    wp.add_argument("--days", type=int, default=30, help="look at jobs from this many days back")
     args = parser.parse_args(argv)
 
     settings = get_settings()
     if args.command == "brief":
         return run_brief(args, settings)
+    if args.command == "workiz-probe":
+        return run_workiz_probe(args)
     db.configure(settings.database_url)
     db.init_db()
 
@@ -83,6 +89,36 @@ def main(argv: list[str] | None = None) -> int:
         with db.new_session() as session:
             for agent in session.scalars(select(Agent).order_by(Agent.name)):
                 print(f"{agent.id}\t{agent.name}\t{agent.email or ''}")
+    return 0
+
+
+def run_workiz_probe(args: argparse.Namespace) -> int:
+    """Connect to each configured Workiz account and report field coverage (never prints the token)."""
+    from collections import Counter
+
+    markets = configured_markets()
+    if args.market:
+        markets = {m: t for m, t in markets.items() if m.lower() == args.market.lower()}
+    if not markets:
+        names = ", ".join(f"WORKIZ_TOKEN_{s}" for s in MARKET_ENV.values())
+        print(f"No Workiz token found. Set one of: {names}", file=sys.stderr)
+        return 1
+    start = date.today() - timedelta(days=args.days)
+    for market, token in markets.items():
+        print(f"== {market}")
+        try:
+            with WorkizClient(token) as client:
+                jobs = list(client.iter_jobs(start))
+                team = client.team()
+        except WorkizError as exc:
+            print(f"   connection failed: {exc}")
+            continue
+        fields = Counter(k for job in jobs for k, v in job.items() if v not in (None, "", [], {}))
+        print(f"   connected · {len(jobs)} jobs since {start} · {len(team)} team members")
+        print("   fields filled (share of jobs): " + ", ".join(
+            f"{k} {v / len(jobs):.0%}" for k, v in sorted(fields.items(), key=lambda kv: -kv[1])) if jobs else "   no jobs")
+        statuses = Counter(str(j.get("Status")) for j in jobs)
+        print(f"   statuses: {dict(statuses.most_common(10))}")
     return 0
 
 

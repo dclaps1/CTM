@@ -82,6 +82,23 @@ All definitions live in `app/brief.py`, so the numbers are the same every run. I
 (calls, texts, forms and chats) to tell new leads from repeat contacts. Targets are in `Targets` in the same file.
 Use `--notes file.txt` to add commentary under the title.
 
+### Workiz (in progress)
+
+Each franchise has its own Workiz account. Add its API token (and secret) as environment variables named
+`WORKIZ_TOKEN_<MARKET>` / `WORKIZ_SECRET_<MARKET>`, where `<MARKET>` is one of `BOSTON`, `CHARLESTON`,
+`SOUTH_ATLANTA`, `LEHIGH_VALLEY`, `GRAND_RAPIDS`, `RICHMOND`, `GREENVILLE`, `ANN_ARBOR`, `SOUTH_KANSAS_CITY`,
+`MARTINSBURG`. In Workiz: enable the Developer API add-on, then Settings → Integrations.
+
+```bash
+python -m app.cli workiz-probe --market "Greater Boston"   # test the connection, show which job fields are filled
+```
+
+Plan once a market connects (Greater Boston first): match Workiz jobs to CTM contacts by phone number; report
+quote vs sold, jobs whose sold amount was never entered, franchise owner close rate overall and by service,
+CTM bookings with no Workiz job; then add a Jobs & Revenue tab to the dashboard. The Workiz API documents
+`job/all`, `job/get/{UUID}`, `lead/all` and `team/all`; check the probe output for amount, status, job type and
+phone fields before building on them.
+
 ## Configuration
 
 All settings are environment variables. `.env` is read automatically. See [`.env.example`](.env.example).
@@ -121,6 +138,8 @@ app/
   scorecard.py    QA scorecard items and scoring
   brief.py        Daily Call Center Brief: definitions, KPIs, action lists, alerts (raw CTM activity, no DB)
   brief_render.py brief → email-safe HTML or Markdown
+  dashboard.py    daily dashboard page (tabs, charts) from a brief
+  workiz_client.py Workiz API client, one token per market
   main.py         web routes (dashboard, calls, recordings, reviews, callbacks, admin, webhook)
   auth.py         password hashing and role checks
   cli.py          sync / create-user / agents / brief commands
