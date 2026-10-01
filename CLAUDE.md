@@ -27,3 +27,7 @@
   City franchise: if yes, map `KANSAS_CITY` to "South Kansas City" in `MARKET_ENV` (or rename the token); if no, keep
   it separate and South Kansas City still needs its own token. It also has 1 "done pending approval" job (same
   question as Greensboro).
+- Houston Sugar Land (token `WORKIZ_TOKEN_HOUSTON_SUGAR_LAND`, plus a secret). Checked 2026-10-01: Workiz rejects
+  the token with HTTP 401, while other markets connect fine with the same code. Dan thinks this location may be
+  closed. Come back to it: confirm with Dan whether it is closed; if so, remove its token/secret so it stops
+  appearing (it is skipped with a warning today); if not, get a fresh API token from its Workiz admin.
