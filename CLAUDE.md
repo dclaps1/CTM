@@ -82,7 +82,7 @@
   Greater Memphis, North Shore Boston, Toledo, SW & South Central Jersey, Myrtle Beach, Monroe & Downriver, Greater
   Houston - North Central & South East (a different account from Greater Houston North), Central Oregon, Greater
   Mobile & Baldwin County, South Shore Boston, SE Dallas, Greater Miami & Florida Keys, The Treasure Coast, Northeast
-  Sacramento, Lake Worth-Boynton Beach, Concord, Kenosha-Racine, Boston Metro South. Toledo has jobs in Ann Arbor
+  Sacramento, Lake Worth-Boynton Beach, Concord & Walnut Creek, Kenosha-Racine, Boston Metro South. Toledo has jobs in Ann Arbor
   (a CTM market), so watch for overlap. No token in the workbook: Lee's Summit - Belton, NW Texas, North San Antonio,
   O'Fallon-Wentzville, McKinney, Raleigh, Katy, North Salt Lake City, Dallas and Mesquite. The six rejected tokens
   (Bergen County, Central Florida, Charlotte Matthews, Henderson Las Vegas, Houston Sugar Land, Wesley Chapel
