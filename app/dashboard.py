@@ -164,7 +164,7 @@ def _jobs_tiles(reports: list[dict]) -> str:
         ("Sold", money(sold_amount), f"{sold} jobs"),
         ("Close rate", pct(sold / decided if decided else None), f"{sold} of {decided} decided"),
         ("Avg ticket", money(sold_amount / sold if sold else None), f"Outstanding {money(sum(t['outstanding'] for t in totals))}"),
-        ("Sold amount missing", str(missing), "past appointments at $0"),
+        ("Sold amount missing", str(missing), "done at $0 or not closed out"),
         ("CTM bookings, no job", str(no_job), f"of {booked} booked in CTM"),
     ]
     return "<div class='tiles'>" + "".join(
