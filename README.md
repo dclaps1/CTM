@@ -118,10 +118,12 @@ Workiz API notes: `job/all` counts `offset` in pages, `lead/all` in records; `re
 ### Call-center follow-through
 
 `python -m app.cli pcc` follows every job the call center booked in CTM (last 90 days by default) into that market's
-Workiz account, matched by phone number, and shows how each one ended: Sold, Done at $0, Canceled, Not closed out
-(appointment passed, still open), Scheduled, or never reached Workiz. Totals by market and by agent: share that reached
-Workiz, close rate, sold revenue, and sold total vs the call center's quote. Then the lists to work: bookings with no
-Workiz job, jobs still open after the appointment, and jobs marked Done at $0. Only call-center bookings are counted,
+Workiz account, matched by phone, else email, else name, and shows how each one ended: Sold, Done at $0, Canceled,
+Not closed out (appointment passed, still open), Scheduled, or, with no job, by the customer's Workiz lead: Scheduled
+lead, no job (the likeliest lost jobs), Open lead, Lead lost, or nothing in Workiz at all. Totals by market and by agent: share that reached
+Workiz, close rate, sold revenue, and sold total vs the call center's quote. Then the lists to work: scheduled leads that never
+became a job, open leads, bookings with nothing in Workiz, jobs still open after the appointment, and jobs marked
+Done at $0. Only call-center bookings are counted,
 because the call center does not get every call for its markets. Definitions are at the top of `app/pcc.py`.
 
 ```bash

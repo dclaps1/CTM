@@ -8,29 +8,42 @@ followed into that market's Workiz account to see whether the job got there, and
 Definitions (the same every run):
 
 - Booking: a CTM contact in one of the 10 call-center markets with a booked record (lead status Booked, a "booked"
-  tag, or a sale marked as a conversion) in the window. Its day, agent and quote come from the first booked record;
-  the quote falls back to the contact's latest sale value. Form bookings with no agent are shown as "No agent".
-- Matched job: the first Workiz job in that market whose phone matches, created from 1 day before the booking to
-  MATCH_DAYS after it. With no job, a Workiz lead with that phone counts as "Lead only".
+  tag, or a sale marked as a conversion) in the window. CTM keeps the lead status on the contact, so it also shows on
+  the web form or missed call that came before the booking; the booking is the first booked record with an agent on
+  it (else the first booked record), and its day, agent and quote come from there. The quote falls back to the
+  contact's latest sale value. Bookings with no agent anywhere are shown as "No agent".
+- Matched job: a Workiz job in that market for the same customer, found by phone, else by email, else by first and
+  last name (the report says which). It must be created from EARLY_DAYS before to MATCH_DAYS after the booking; one
+  created more than a day before the booking counts only if its appointment is on or after the booking day, so an
+  old finished job does not match. The earliest match by the best key wins.
 - Outcome of the matched job: Sold (Done with a total above $0), Done at $0, Canceled, Not closed out (appointment
   passed, still open), Scheduled (appointment ahead, or in progress).
+- With no job, a Workiz lead for the same customer (same keys, any date) decides the outcome by its status:
+  Scheduled lead, no job (scheduled or rescheduled); Lead lost or canceled; Open lead, not worked (anything else).
+  With no lead either: Not in Workiz.
 - Reached Workiz = bookings with a matched job ÷ bookings. Close rate = Sold ÷ (Sold + Done at $0 + Canceled + Not
   closed out); scheduled jobs are left out. Sold vs quote compares sold totals with PCC's quote on jobs that have both.
 """
 from __future__ import annotations
 
 import html
+import re
 from collections import Counter
 from datetime import date, timedelta
 
-from app.brief import MARKETS, Activity, first_name, is_booked_record, phone
+from app.brief import _STATE_SUFFIX, MARKETS, Activity, first_name, is_booked_record, phone
 from app.jobs import _day, _money, _name, _pct, _status, amount, digits10, job_phones, outcome
 
 PCC_DAYS = 90
 MATCH_DAYS = 14
+EARLY_DAYS = 30
 NO_AGENT = "No agent"
-OUTCOMES = ["Sold", "Done at $0", "Canceled", "Not closed out", "Scheduled", "Lead only", "Not in Workiz"]
+SCHEDULED_LEAD, OPEN_LEAD, LOST_LEAD, NOT_IN_WORKIZ = (
+    "Scheduled lead, no job", "Open lead, not worked", "Lead lost or canceled", "Not in Workiz")
+OUTCOMES = ["Sold", "Done at $0", "Canceled", "Not closed out", "Scheduled",
+            SCHEDULED_LEAD, OPEN_LEAD, LOST_LEAD, NOT_IN_WORKIZ]
 DECIDED = ("Sold", "Done at $0", "Canceled", "Not closed out")
+NO_JOB = (SCHEDULED_LEAD, OPEN_LEAD, LOST_LEAD, NOT_IN_WORKIZ)
 
 
 def _quote(records: list[dict], first: dict) -> float | None:
@@ -39,6 +52,31 @@ def _quote(records: list[dict], first: dict) -> float | None:
         if value > 0:
             return round(value, 2)
     return None
+
+
+def _letters(v) -> str:
+    return re.sub(r"[^a-z]", "", str(v or "").lower())
+
+
+def _full_name(records: list[dict]) -> tuple[str, str] | None:
+    """(first, last) from the latest real name on the contact; caller IDs like "MACON GA" are skipped."""
+    for r in records[::-1]:
+        name = str(r.get("name") or (r.get("form") or {}).get("name") or "").strip()
+        if name.isupper() and _STATE_SUFFIX.search(name):
+            continue
+        words = name.split()
+        if len(words) >= 2 and len(_letters(words[0])) >= 2 and len(_letters(words[-1])) >= 2:
+            return _letters(words[0]), _letters(words[-1])
+    return None
+
+
+def _emails(records: list[dict]) -> set[str]:
+    out = set()
+    for r in records:
+        for e in (r.get("email"), (r.get("form") or {}).get("email")):
+            if e and "@" in str(e):
+                out.add(str(e).strip().lower())
+    return out
 
 
 def pcc_bookings(act: Activity, start: date, end: date) -> list[dict]:
@@ -54,7 +92,8 @@ def pcc_bookings(act: Activity, start: date, end: date) -> list[dict]:
         first = next((r for r in hits if (r.get("agent") or {}).get("name")), hits[0])
         out.append({"phone10": number, "phone": phone(contact), "booked": first["_day"], "market": market,
                     "name": first_name(first), "agent": (first.get("agent") or {}).get("name") or NO_AGENT,
-                    "quote": _quote(records, first)})
+                    "quote": _quote(records, first), "emails": sorted(_emails(records)),
+                    "full_name": _full_name(records)})
     return sorted(out, key=lambda b: (b["booked"], b["market"]))
 
 
@@ -65,15 +104,47 @@ def _job_outcome(job: dict, today: date) -> str:
     return {"sold": "Sold", "canceled": "Canceled", "pending": "Scheduled"}[o]
 
 
+def _match_key(b: dict, x: dict) -> str | None:
+    """How a Workiz job or lead matches the booking's customer: phone, email or name (None if it doesn't)."""
+    if b["phone10"] in job_phones(x):
+        return "phone"
+    if b["emails"] and str(x.get("Email") or "").strip().lower() in b["emails"]:
+        return "email"
+    if b["full_name"] and (_letters(x.get("FirstName")), _letters(x.get("LastName"))) == tuple(b["full_name"]):
+        return "name"
+    return None
+
+
+def _lead_outcome(lead: dict) -> str:
+    status = _status(lead)
+    if status in ("scheduled", "rescheduled"):
+        return SCHEDULED_LEAD
+    if "lost" in status or "cancel" in status:
+        return LOST_LEAD
+    return OPEN_LEAD
+
+
+def _in_window(b: dict, job: dict) -> bool:
+    created = _day(job.get("CreatedDate"))
+    if created is None or not b["booked"] - timedelta(days=EARLY_DAYS) <= created <= b["booked"] + timedelta(days=MATCH_DAYS):
+        return False
+    return created >= b["booked"] - timedelta(days=1) or (_day(job.get("JobDateTime")) or date.min) >= b["booked"]
+
+
 def match_booking(b: dict, jobs: list[dict], leads: list[dict], today: date) -> dict:
-    lo, hi = b["booked"] - timedelta(days=1), b["booked"] + timedelta(days=MATCH_DAYS)
-    hits = sorted((j for j in jobs if b["phone10"] in job_phones(j) and lo <= (_day(j.get("CreatedDate")) or date.min) <= hi),
-                  key=lambda j: str(j.get("CreatedDate")))
+    rank = {"phone": 0, "email": 1, "name": 2}
+    hits = [(rank[k], str(j.get("CreatedDate")), k, j) for j in jobs if _in_window(b, j) and (k := _match_key(b, j))]
     if not hits:
-        lead = any(b["phone10"] in job_phones(x) for x in leads)
-        return {**b, "outcome": "Lead only" if lead else "Not in Workiz", "job": None}
-    j = hits[0]
-    return {**b, "outcome": _job_outcome(j, today),
+        found = sorted((rank[k], str(x.get("CreatedDate")), k, x) for x in leads if (k := _match_key(b, x)))
+        if not found:
+            return {**b, "outcome": NOT_IN_WORKIZ, "matched_by": None, "job": None, "lead": None}
+        _, _, key, lead = max((f for f in found if f[0] == found[0][0]), key=lambda f: f[1])  # best key, latest lead
+        return {**b, "outcome": _lead_outcome(lead), "matched_by": key, "job": None,
+                "lead": {"serial": lead.get("SerialId"), "status": str(lead.get("Status") or "—"),
+                         "created_by": str(lead.get("CreatedBy") or "—"),
+                         "when": str(lead.get("LeadDateTime") or "")[:10]}}
+    _, _, key, j = min(hits, key=lambda h: (h[0], h[1]))
+    return {**b, "outcome": _job_outcome(j, today), "matched_by": key, "lead": None,
             "job": {"serial": j.get("SerialId"), "status": " / ".join(x for x in (j.get("Status"), j.get("SubStatus")) if x),
                     "appt": str(j.get("JobDateTime") or "")[:10], "service": _name(j, "JobType"),
                     "created_by": str(j.get("CreatedBy") or "—"), "total": amount(j.get("JobTotalPrice")),
@@ -83,7 +154,7 @@ def match_booking(b: dict, jobs: list[dict], leads: list[dict], today: date) -> 
 def summarize(rows: list[dict]) -> dict:
     counts = Counter(r["outcome"] for r in rows)
     n = len(rows)
-    reached = n - counts["Lead only"] - counts["Not in Workiz"]
+    reached = n - sum(counts[o] for o in NO_JOB)
     decided = sum(counts[o] for o in DECIDED)
     pairs = [(r["quote"], r["job"]["total"]) for r in rows if r["outcome"] == "Sold" and r["quote"]]
     quoted, sold = sum(q for q, _ in pairs), sum(s for _, s in pairs)
@@ -96,6 +167,7 @@ def summarize(rows: list[dict]) -> dict:
         "sold_revenue": round(sum(r["job"]["total"] for r in rows if r["outcome"] == "Sold"), 2),
         "quote_pairs": len(pairs),
         "sold_vs_quote": sold / quoted if quoted else None,
+        "matched_by": dict(Counter(r["matched_by"] for r in rows if r["job"])),
     }
 
 
@@ -125,21 +197,24 @@ def build_pcc_report(act: Activity, workiz: dict[str, tuple[list[dict], list[dic
 
 DEFINITIONS = (
     "Only bookings the call center made are counted; the call center does not get every call for its markets. "
-    f"A booking is matched to a Workiz job in its market by phone number, created from 1 day before to {MATCH_DAYS} days "
-    "after the booking. Close rate = Sold ÷ (Sold + Done at $0 + Canceled + Not closed out); scheduled jobs are left out. "
+    "A booking is matched to a Workiz job in its market by phone, else email, else first and last name, created from "
+    f"{EARLY_DAYS} days before (if the appointment is not before the booking) to {MATCH_DAYS} days after the booking. "
+    "With no job, the customer's Workiz lead status decides the outcome. Close rate = Sold ÷ (Sold + Done at $0 + Canceled + Not closed out); scheduled jobs are left out. "
     "Sold vs quote compares the sold total with the call center's quote on jobs that have both."
 )
 
 
 def summary_rows(groups: list[dict], label: str, total: dict | None = None) -> list[list[str]]:
     head = [label, "Bookings", "Reached Workiz", "Sold", "Done at $0", "Canceled", "Not closed out", "Scheduled",
-            "Not in Workiz", "Close rate", "Sold revenue", "Sold vs quote"]
+            "Scheduled lead, no job", "Open lead", "Lead lost", "Not in Workiz", "Close rate", "Sold revenue",
+            "Sold vs quote"]
     body = [{"name": g["name"], **g} for g in groups] + ([{"name": "Total", **total}] if total else [])
     return [head] + [[
         g["name"], str(g["bookings"]), f"{g['reached_workiz']} ({_pct(g['reach_rate'])})",
         str(g["outcomes"]["Sold"]), str(g["outcomes"]["Done at $0"]), str(g["outcomes"]["Canceled"]),
         str(g["outcomes"]["Not closed out"]), str(g["outcomes"]["Scheduled"]),
-        str(g["outcomes"]["Not in Workiz"] + g["outcomes"]["Lead only"]), _pct(g["close_rate"]),
+        str(g["outcomes"][SCHEDULED_LEAD]), str(g["outcomes"][OPEN_LEAD]), str(g["outcomes"][LOST_LEAD]),
+        str(g["outcomes"][NOT_IN_WORKIZ]), _pct(g["close_rate"]),
         _money(g["sold_revenue"]), _pct(g["sold_vs_quote"]) if g["quote_pairs"] >= 3 else "—",
     ] for g in body]
 
@@ -147,15 +222,25 @@ def summary_rows(groups: list[dict], label: str, total: dict | None = None) -> l
 def work_rows(r: dict, outcomes: tuple[str, ...]) -> list[list[str]]:
     rows = [x for x in r["rows"] if x["outcome"] in outcomes]
     rows.sort(key=lambda x: (x["market"], x["booked"]))
+    def workiz(x: dict) -> str:
+        how = f" (matched by {x['matched_by']})" if x["matched_by"] not in (None, "phone") else ""
+        if x["job"]:
+            return f"Job #{x['job']['serial']} {x['job']['status']}, appt {x['job']['appt']}{how}"
+        if x["lead"]:
+            when = f", {x['lead']['when']}" if x["lead"]["when"] else ""
+            return f"Lead #{x['lead']['serial']} {x['lead']['status']}{when}, by {x['lead']['created_by']}{how}"
+        return "Nothing under this phone, email or name"
+
     return [["Booked", "Market", "Customer", "Phone", "Agent", "Quote", "Workiz"]] + [[
-        x["booked"].isoformat(), x["market"], x["name"], x["phone"], x["agent"], _money(x["quote"]),
-        (f"#{x['job']['serial']} {x['job']['status']}, appt {x['job']['appt']}" if x["job"] else x["outcome"]),
+        x["booked"].isoformat(), x["market"], x["name"], x["phone"], x["agent"], _money(x["quote"]), workiz(x),
     ] for x in rows]
 
 
 def work_lists(r: dict) -> list[tuple[str, list[list[str]]]]:
     lists = [
-        ("Booked, but no Workiz job (check each one)", work_rows(r, ("Not in Workiz", "Lead only"))),
+        ("Scheduled lead, never made a job (likeliest lost jobs)", work_rows(r, (SCHEDULED_LEAD,))),
+        ("Open lead, not worked", work_rows(r, (OPEN_LEAD,))),
+        ("Booked, but nothing in Workiz", work_rows(r, (NOT_IN_WORKIZ,))),
         ("Appointment passed, job still open in Workiz", work_rows(r, ("Not closed out",))),
         ("Marked Done at $0 in Workiz", work_rows(r, ("Done at $0",))),
     ]
