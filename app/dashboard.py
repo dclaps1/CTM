@@ -12,8 +12,8 @@ from datetime import date
 from html import escape
 
 from app.brief_render import _action_lines, _follow, _label, _rows, money, pct, status_line, title
-from app.jobs import (CLOSE_NOTE, DEFINITIONS, TICKET_NOTE, booking_rows, close_grid_rows, flood_it_summary, group_rows, market_rows,
-                      missing_rows, quote_rows, quote_summary, ticket_grid_rows)
+from app.jobs import (DEFINITIONS, location_rows, owed_bucket_rows, service_rows, source_rows, tiles,
+                      work_lists)
 
 STATUS_CLASS = {"green": "g", "yellow": "y", "red": "r", "none": "n"}
 
@@ -152,51 +152,89 @@ def _alerts(brief: dict) -> str:
     ) + "</div>"
 
 
-def _jobs_tiles(reports: list[dict]) -> str:
-    totals = [r["totals"] for r in reports]
-    sold = sum(t["sold"] for t in totals)
-    decided = sum(t["decided"] for t in totals)
-    sold_amount = sum(t["sold_amount"] for t in totals)
-    no_job = sum(r["ctm_bookings"]["total"] - r["ctm_bookings"]["with_job"] for r in reports)
-    booked = sum(r["ctm_bookings"]["total"] for r in reports)
-    missing = sum(t["missing"] for t in totals)
-    specs = [
-        ("Sold", money(sold_amount), f"{sold} jobs"),
-        ("Close rate", pct(sold / decided if decided else None), f"{sold} of {decided} decided"),
-        ("Avg ticket", money(sold_amount / sold if sold else None), f"Outstanding {money(sum(t['outstanding'] for t in totals))}"),
-        ("Sold amount missing", str(missing), "done at $0 or not closed out"),
-        ("CTM bookings, no job", str(no_job), f"of {booked} booked in CTM"),
-    ]
+def _month_chart(monthly: list[dict]) -> str:
+    """Revenue completed per month: one series, so no legend; the newest and the biggest month are labeled."""
+    w, h, left, bottom, top = 640, 190, 8, 26, 22
+    peak = max((m["revenue"] for m in monthly), default=0) or 1
+    slot = (w - left * 2) / len(monthly)
+    bw = min(slot * 0.56, 56)
+    labeled = {len(monthly) - 1, max(range(len(monthly)), key=lambda i: monthly[i]["revenue"])}
+    parts = [f"<svg viewBox='0 0 {w} {h}' class='chart' role='img' aria-label='Revenue completed per month'>",
+             f"<line x1='{left}' x2='{w - left}' y1='{h - bottom}' y2='{h - bottom}' class='grid'/>"]
+    for i, m in enumerate(monthly):
+        bh = max((m["revenue"] / peak) * (h - top - bottom), 2 if m["revenue"] else 0)
+        x, y = left + i * slot + (slot - bw) / 2, h - bottom - bh
+        cls = "bar partial" if m["partial"] else "bar"
+        label = escape(m["label"] + (" (so far)" if m["partial"] else ""))
+        parts.append(f"<g><title>{label}: {money(m['revenue'])} from {m['jobs']} jobs</title>"
+                     f"<path d='M{x:.1f},{h - bottom} V{y + 4:.1f} q0,-4 4,-4 H{x + bw - 4:.1f} q4,0 4,4 V{h - bottom} Z' "
+                     f"class='{cls}'/>"
+                     f"<rect x='{left + i * slot:.1f}' y='{top}' width='{slot:.1f}' height='{h - top - bottom}' class='hit'/>"
+                     f"<text x='{x + bw / 2:.1f}' y='{h - 8}' text-anchor='middle' class='tick'>{label}</text>")
+        if i in labeled and m["revenue"]:
+            parts.append(f"<text x='{x + bw / 2:.1f}' y='{y - 6:.1f}' text-anchor='middle' class='val-label'>"
+                         f"{money(m['revenue'])}</text>")
+    return "".join(parts) + "</svg>"
+
+
+def _jobs_tiles(r: dict) -> str:
     return "<div class='tiles'>" + "".join(
-        f"<div class='tile{' r' if warn else ''}'><span class='lbl'>{escape(label)}</span>"
-        f"<span class='val'>{escape(val)}</span><span class='cmp'>{escape(cmp)}</span></div>"
-        for (label, val, cmp), warn in zip(specs, (False, False, False, missing > 0, no_job > 0))
+        f"<div class='tile'><span class='lbl'>{escape(label)}</span><span class='val'>{escape(value)}</span>"
+        f"<span class='cmp'>{escape(cmp)}</span></div>" for label, value, cmp in tiles(r)
     ) + "</div>"
 
 
+def _location(r: dict, heading: bool) -> str:
+    actions = "".join(f"<li>{escape(a)}</li>" for a in r["actions"]) or "<li>Nothing needs attention.</li>"
+    parts = [f"<h2 class='loc'>{escape(r['market'])}</h2>" if heading else "",
+             _jobs_tiles(r),
+             f"<p class='fine'>{escape(r['headline']['note'])}</p>" if r["headline"]["note"] else "",
+             "<div class='split'>",
+             f"<div class='card attn'><h3>Needs attention</h3><ol>{actions}</ol></div>",
+             "<figure><figcaption><b>Revenue completed by month</b>"
+             "<span class='legend'>Hover a bar for jobs; the current month is so far.</span></figcaption>"
+             f"{_month_chart(r['monthly'])}</figure></div>",
+             f"<h3 class='brk'>By service · last {r['rate_days']} days</h3>", _table(service_rows(r)),
+             f"<h3>By lead source · last {r['rate_days']} days</h3>", _table(source_rows(r)),
+             "<h3>Money owed</h3>", _table(owed_bucket_rows(r))]
+    lists = work_lists(r)
+    if lists:
+        parts.append("<h3 class='brk'>Lists to work</h3>")
+        for title_, rows in lists:
+            parts += [f"<h4>{escape(title_)} · {len(rows) - 1}</h4>", _table(rows)]
+    if not r["on_ctm"]:
+        parts.append("<p class='fine'>This location is not on CTM yet, so call-center bookings are not checked.</p>")
+    return "<div class='location'>" + "".join(parts) + "</div>"
+
+
+def jobs_body(reports: list[dict]) -> str:
+    """The Jobs & Revenue content, shared by the dashboard tab and the printable report."""
+    parts = []
+    if len(reports) > 1:
+        parts += ["<h2>All locations</h2>", _table(location_rows(reports))]
+    parts += [_location(r, heading=len(reports) > 1) for r in reports]
+    parts.append(f"<p class='fine defs'>{escape(DEFINITIONS)}</p>")
+    return "".join(parts)
+
+
 def _jobs_panel(reports: list[dict]) -> str:
-    start, today = reports[0]["start"], reports[0]["today"]
-    parts = [f"<p class='meta'>Workiz jobs created {escape(start)} to {escape(today)}, matched to CTM by phone number.</p>",
-             _jobs_tiles(reports), "<h2>Markets</h2>", _table(market_rows(reports))]
-    for r in reports:
-        parts += [f"<h2>{escape(r['market'])}: close rate by service</h2>", _table(group_rows(r["by_service"], "Service")),
-                  f"<h2>{escape(r['market'])}: close rate by service and source</h2>",
-                  f"<p class='fine'>{escape(CLOSE_NOTE)}</p>", _table(close_grid_rows(r)),
-                  f"<h2>{escape(r['market'])}: average ticket by service and source</h2>",
-                  f"<p class='fine'>{escape(TICKET_NOTE)}</p>", _table(ticket_grid_rows(r)),
-                  f"<h2>{escape(r['market'])}: close rate by lead source</h2>", _table(group_rows(r["by_source"], "Source")),
-                  f"<h2>{escape(r['market'])}: Flood It</h2>", f"<p class='fine'>{escape(flood_it_summary(r))}</p>"]
-        if r["flood_it"]["totals"]["jobs"]:
-            parts += [_table(group_rows(r["flood_it"]["by_source"], "Flood It source")),
-                      _table(group_rows(r["flood_it"]["by_service"], "Service"))]
-        parts += [f"<h2>{escape(r['market'])}: quote vs sold</h2>", f"<p class='fine'>{escape(quote_summary(r))}</p>"]
-        for heading, rows in ((None, quote_rows(r)), ("sold amount missing", missing_rows(r)),
-                              ("CTM bookings with no Workiz job", booking_rows(r))):
-            if heading:
-                parts.append(f"<h2>{escape(r['market'])}: {escape(heading)}</h2>")
-            parts.append(_table(rows) if len(rows) > 1 else "<p class='fine'>None.</p>")
-    parts.append(f"<p class='fine'>{escape(DEFINITIONS)}</p>")
-    return "<section class='panel' id='tab-jobs' hidden>" + "".join(parts) + "</section>"
+    return f"<section class='panel' id='tab-jobs' hidden>{jobs_body(reports)}</section>"
+
+
+def render_jobs_report(reports: list[dict]) -> str:
+    """Printable Jobs & Revenue report (letter, landscape). Print it to PDF from a browser, or `jobs --pdf`."""
+    today = date.fromisoformat(reports[0]["today"])
+    names = ", ".join(r["market"] for r in reports) if len(reports) <= 3 else f"{len(reports)} locations"
+    return f"""<!doctype html><html lang="en" data-theme="light"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Jobs &amp; Revenue · {escape(names)}</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>{CSS}{PRINT_CSS}</style></head><body><main>
+<header><div class="eyebrow">Voda Cleaning &amp; Restoration · Jobs &amp; Revenue</div>
+<h1>{escape(names)}</h1>
+<p class="meta">As of {today:%B} {today.day}, {today.year} · from Workiz, with call-center bookings from CTM</p></header>
+{jobs_body(reports)}
+</main></body></html>"""
 
 
 def render_dashboard(brief: dict, notes: str = "", jobs: list[dict] | None = None) -> str:
@@ -309,6 +347,10 @@ figcaption{display:flex;flex-direction:column;gap:2px;font-size:14px}.legend{fon
 ul.plain{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:4px}.fine{font-size:13px;color:var(--ink-2)}
 .placeholder{background:var(--surface);border:1px dashed var(--line);border-radius:12px;padding:28px 22px;display:flex;flex-direction:column;gap:8px;max-width:640px}
 .src{font:500 12px var(--mono);color:var(--accent)}
+h3{font-size:16px;font-weight:600;margin:10px 0 0}h2.loc{font-size:22px;margin-top:18px}
+.split{display:grid;grid-template-columns:1fr 1fr;gap:12px}@media(max-width:760px){.split{grid-template-columns:1fr}}
+.attn{padding:12px 16px}.attn ol{margin:8px 0 0;padding-left:20px;display:flex;flex-direction:column;gap:6px;font-size:14px}
+.bar.partial{opacity:.45}.val-label{font:600 11px var(--mono);fill:var(--ink-2)}.defs{margin-top:8px}
 """
 
 JS = """
@@ -333,4 +375,16 @@ JS = """
     });
   });
 })();
+"""
+
+
+PRINT_CSS = """
+@page{size:Letter landscape;margin:11mm 12mm 13mm;
+  @bottom-left{content:"Voda Cleaning & Restoration · Jobs & Revenue · internal";font:8.5px "IBM Plex Mono",monospace;color:#7b8580}
+  @bottom-right{content:"Page " counter(page) " of " counter(pages);font:8.5px "IBM Plex Mono",monospace;color:#7b8580}}
+@media print{:root{color-scheme:light}body{background:#fff;padding:0;font-size:12px}main{max-width:none;padding:0;gap:9px}
+.tiles{grid-template-columns:repeat(5,1fr)!important}.val{font-size:22px}.split{grid-template-columns:1.1fr 1fr}
+.tile,.card,figure,tr,.tbl{break-inside:avoid}h2,h3,h4{break-after:avoid}.brk{break-before:page}
+.tbl{overflow:visible}table{font-size:10.5px}th,td{padding:4px 8px}th{font-size:9px}.fine{font-size:10px}
+*{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
 """

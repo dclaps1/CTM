@@ -1,31 +1,42 @@
-"""Jobs & Revenue: Workiz jobs for one franchise market, matched to CTM contacts by phone number.
+"""Jobs & Revenue: one location's Workiz jobs, matched to CTM by phone number, boiled down to what a
+leadership team needs: how are we doing, what needs action, and where the money comes from.
 
-    report = build_jobs_report("Greater Boston", jobs, leads, activity, start, today)
+    report = build_jobs_report("Greater Boston", jobs, leads, activity, today)
+
+How jobs flow: the call center books a job in Workiz with a quoted price; the franchise owner does the work and
+marks it Done with the real revenue, or "done pending approval" while waiting to be paid.
 
 Definitions (the same every run):
 
-- A job counts in the window when it was *created* in Workiz on or after `start`.
-- The call center books a job with a quoted price; the franchise owner completes it and enters the revenue.
-- Sold: marked Done (or "done pending approval") in Workiz with a job total above $0.
-- Decided: sold, canceled, or the appointment date has passed. Close rate = sold ÷ decided.
-  Future appointments and jobs "In progress" are "pending" and left out, even if they carry a quoted price.
-- Sold amount missing / not closed out: marked Done at $0, or the appointment date has passed and the job
-  is neither Done, canceled nor in progress. These count as decided, not sold.
-- Quote: what the call center booked in CTM (sale value), else the largest dollar amount in that
-  contact's call summaries. Quote vs sold uses jobs that have both.
-- CTM booking: a contact in this market marked Booked in CTM during the window. It "has a Workiz job"
-  when a Workiz job carries the same phone number (last 10 digits).
+- Completed: marked Done or "done pending approval" with a total above $0. Its completion date is the day its
+  status last changed. Revenue = completed job totals, counted on the completion date.
+- Close rate: of the jobs *booked* (created in Workiz) in the rate window, sold ÷ decided. Sold = completed.
+  Decided = sold, canceled, or the appointment date has passed. Future and in-progress jobs are left out.
+- Not closed out: the appointment date has passed but the job is still open (not Done, canceled or in
+  progress), or it is Done at $0. These count as decided, not sold.
+- Owed: open balance on a completed job, aged from the day it was completed.
+- Days to first visit: booked → first appointment. Days to done: booked → completed.
 """
 from __future__ import annotations
 
 import re
-from collections import defaultdict
+import statistics
 from datetime import date, datetime, timedelta
 from typing import Any
 
-from app.brief import MARKETS, Activity, _largest_amount, first_name, is_booked_record, phone
+from app.brief import MARKETS, Activity, first_name, is_booked_record, phone
 
 UNKNOWN = "(not set)"
+FLOOD_IT = "Flood It"
+PERIOD_DAYS = 30  # headline revenue and bookings, compared with the 30 days before
+RATE_DAYS = 90  # close rate, ticket and speed need more jobs to be steady
+HISTORY_DAYS = 400  # money owed and clean-up lists look back this far
+OWED_ALERT_DAYS = 30
+SLOW_VISIT_DAYS = 7
+MIN_JOBS = 5  # a service or source needs this many jobs before the report calls it out
+
+
+# -- small helpers ---------------------------------------------------------------------------------
 
 
 def digits10(number: Any) -> str:
@@ -40,33 +51,34 @@ def amount(v: Any) -> float:
         return 0.0
 
 
-def _day(v: Any) -> date | None:
+def _dt(v: Any) -> datetime | None:
     try:
-        return datetime.fromisoformat(str(v)).date()
+        return datetime.fromisoformat(str(v))
     except ValueError:
         return None
+
+
+def _day(v: Any) -> date | None:
+    d = _dt(v)
+    return d.date() if d else None
+
+
+def _days_between(a: Any, b: Any) -> float | None:
+    x, y = _dt(a), _dt(b)
+    return max((y - x).total_seconds() / 86400, 0.0) if x and y else None
+
+
+def _median(values: list[float | None]) -> float | None:
+    values = [v for v in values if v is not None]
+    return round(statistics.median(values), 1) if values else None
 
 
 def job_phones(job: dict) -> set[str]:
     return {p for p in (digits10(job.get("Phone")), digits10(job.get("SecondPhone"))) if p}
 
 
-def outcome(job: dict, today: date) -> str:
-    """sold (Done with revenue) / canceled / missing (Done at $0, or past date and not closed out) /
-    pending (future or in progress; a booked job's price is only the quote until it is Done)."""
-    status = str(job.get("Status") or "").lower()
-    if status.startswith("cancel"):
-        return "canceled"
-    if status.startswith("done"):
-        return "sold" if amount(job.get("JobTotalPrice")) > 0 else "missing"
-    if status == "in progress":
-        return "pending"
-    when = _day(job.get("JobDateTime"))
-    return "missing" if when is not None and when < today else "pending"
-
-
-FLOOD_IT = "Flood It"
-TICKET_COLUMNS = 4  # sources shown as their own column in the avg-ticket grid; the rest go under "Other"
+def _status(job: dict) -> str:
+    return str(job.get("Status") or "").strip().lower()
 
 
 def _name(job: dict, key: str) -> str:
@@ -79,198 +91,267 @@ def source_family(job: dict) -> str:
     return FLOOD_IT if name.lower().startswith("flood it") else name
 
 
-def _group(jobs: list[dict], key, today: date) -> list[dict]:
-    """`key`: a Workiz field name, or a function of the job."""
-    groups: dict[str, list[dict]] = defaultdict(list)
-    for j in jobs:
-        groups[key(j) if callable(key) else _name(j, key)].append(j)
-    rows = [{"name": name, **_totals(js, today)} for name, js in groups.items()]
-    return sorted(rows, key=lambda r: (-r["jobs"], r["name"]))
+def outcome(job: dict, today: date) -> str:
+    """sold (completed with revenue) / canceled / missing (not closed out) / pending (future or in progress)."""
+    status = _status(job)
+    if status.startswith("cancel"):
+        return "canceled"
+    if status.startswith("done"):
+        return "sold" if amount(job.get("JobTotalPrice")) > 0 else "missing"
+    if status == "in progress":
+        return "pending"
+    when = _day(job.get("JobDateTime"))
+    return "missing" if when is not None and when < today else "pending"
 
 
-def _totals(jobs: list[dict], today: date) -> dict:
-    outs = [outcome(j, today) for j in jobs]
-    sold = [j for j, o in zip(jobs, outs) if o == "sold"]
-    decided = sum(o != "pending" for o in outs)
-    sold_amount = sum(amount(j.get("JobTotalPrice")) for j in sold)
-    due = sum(amount(j.get("JobAmountDue")) for j in sold)
-    return {
-        "jobs": len(jobs),
-        "sold": len(sold),
-        "canceled": outs.count("canceled"),
-        "missing": outs.count("missing"),
-        "pending": outs.count("pending"),
-        "decided": decided,
-        "close_rate": len(sold) / decided if decided else None,
-        "sold_amount": round(sold_amount, 2),
-        "collected": round(sold_amount - due, 2),
-        "outstanding": round(due, 2),
-        "avg_ticket": round(sold_amount / len(sold), 2) if sold else None,
-    }
+def completed_on(job: dict) -> date | None:
+    """Completion date of a sold job (the day its status last changed), else None."""
+    if not _status(job).startswith("done") or amount(job.get("JobTotalPrice")) <= 0:
+        return None
+    return _day(job.get("LastStatusUpdate")) or _day(job.get("JobEndDateTime"))
 
 
-def _ticket_grid(jobs: list[dict], today: date) -> dict:
-    """Average sold ticket by service (rows) and lead source (columns)."""
-    sold = [j for j in jobs if outcome(j, today) == "sold"]
-    by_source = _group(sold, source_family, today)
-    by_source.sort(key=lambda g: (-g["sold"], -g["sold_amount"], g["name"]))
-    columns = [g["name"] for g in by_source[:TICKET_COLUMNS]]
-    if len(by_source) > TICKET_COLUMNS:
-        columns.append("Other")
-
-    def column(j: dict) -> str:
-        return source_family(j) if source_family(j) in columns else "Other"
-
-    rows = []
-    for g in _group(sold, "JobType", today):
-        service_jobs = [j for j in sold if _name(j, "JobType") == g["name"]]
-        cells = {c["name"]: {"sold": c["sold"], "avg_ticket": c["avg_ticket"]}
-                 for c in _group(service_jobs, column, today)}
-        rows.append({"service": g["name"], "sold": g["sold"], "avg_ticket": g["avg_ticket"], "cells": cells})
-    rows.sort(key=lambda r: (-r["sold"], r["service"]))
-    return {"columns": columns, "rows": rows}
+def owed(job: dict) -> float:
+    due = amount(job.get("JobAmountDue"))
+    return due if due >= 1 and completed_on(job) else 0.0  # ignore rounding pennies
 
 
-def _close_grid(jobs: list[dict], today: date) -> dict:
-    """Close rate by service (rows) and lead source (columns), over every job in the window."""
-    by_source = _group(jobs, source_family, today)
-    by_source.sort(key=lambda g: (-g["decided"], -g["jobs"], g["name"]))
-    columns = [g["name"] for g in by_source[:TICKET_COLUMNS]]
-    if len(by_source) > TICKET_COLUMNS:
-        columns.append("Other")
-
-    def column(j: dict) -> str:
-        return source_family(j) if source_family(j) in columns else "Other"
-
-    rows = []
-    for g in _group(jobs, "JobType", today):
-        service_jobs = [j for j in jobs if _name(j, "JobType") == g["name"]]
-        cells = {c["name"]: {"sold": c["sold"], "decided": c["decided"], "close_rate": c["close_rate"]}
-                 for c in _group(service_jobs, column, today)}
-        rows.append({"service": g["name"], "sold": g["sold"], "decided": g["decided"],
-                     "close_rate": g["close_rate"], "cells": cells})
-    rows.sort(key=lambda r: (-r["decided"], r["service"]))
-    return {"columns": columns, "rows": rows}
-
-
-def _ctm_index(act: Activity) -> dict[str, list[dict]]:
-    index: dict[str, list[dict]] = defaultdict(list)
-    for contact, records in act.by_contact.items():
-        if d := digits10(contact):
-            index[d].extend(records)
-    return index
-
-
-def ctm_quote(records: list[dict]) -> float | None:
-    values = [amount((r.get("sale") or {}).get("value")) for r in records]
-    values = [v for v in values if v > 0]
-    if values:
-        return values[-1]
-    return _largest_amount(" ".join(r.get("summary") or "" for r in records))
-
-
-def _tech(job: dict) -> str:
-    return ", ".join(str(t.get("Name") or "").strip() for t in job.get("Team") or [] if t.get("Name")) or "—"
+def _in(d: date | None, start: date, end: date) -> bool:
+    return d is not None and start <= d <= end
 
 
 def _job_row(job: dict) -> dict:
+    team = ", ".join(str(t.get("Name") or "").strip() for t in job.get("Team") or [] if t.get("Name"))
     return {
         "serial": job.get("SerialId"),
-        "job_date": str(job.get("JobDateTime") or "")[:10],
+        "appt": str(job.get("JobDateTime") or "")[:10],
         "status": " / ".join(x for x in (job.get("Status"), job.get("SubStatus")) if x),
-        "service": str(job.get("JobType") or "").strip() or UNKNOWN,
-        "source": str(job.get("JobSource") or "").strip() or UNKNOWN,
+        "service": _name(job, "JobType"),
+        "source": _name(job, "JobSource"),
         "customer": (str(job.get("FirstName") or "").strip().split() or ["—"])[0].title(),
-        "tech": _tech(job),
+        "tech": team or "—",
+        "total": amount(job.get("JobTotalPrice")),
     }
 
 
-def build_jobs_report(market: str, jobs: list[dict], leads: list[dict], act: Activity,
-                      start: date, today: date) -> dict:
-    """`jobs` may reach back before `start` (they are used to match CTM bookings); metrics use jobs created
-    from `start` on."""
-    window = [j for j in jobs if (_day(j.get("CreatedDate")) or date.min) >= start]
-    window.sort(key=lambda j: str(j.get("JobDateTime") or ""))
-    ctm = _ctm_index(act)
-    matched = [j for j in window if any(p in ctm for p in job_phones(j))]
+# -- measures ------------------------------------------------------------------------------------
 
-    missing = [{**_job_row(j), "reason": "Done at $0" if str(j.get("Status") or "").lower().startswith("done")
-                else "Not closed out"} for j in window if outcome(j, today) == "missing"]
 
-    quotes = []
-    for j in window:
-        if outcome(j, today) != "sold":
-            continue
-        records = [r for p in job_phones(j) for r in ctm.get(p, [])]
-        q = ctm_quote(records) if records else None
-        if q:
-            quotes.append({**_job_row(j), "quote": q, "sold": amount(j.get("JobTotalPrice"))})
-    quoted, sold_q = sum(q["quote"] for q in quotes), sum(q["sold"] for q in quotes)
+def _group_stats(booked: list[dict], completed: list[dict], today: date) -> dict:
+    """booked: jobs created in the rate window; completed: jobs completed in it."""
+    outs = [outcome(j, today) for j in booked]
+    sold, decided = outs.count("sold"), sum(o != "pending" for o in outs)
+    revenue = sum(amount(j.get("JobTotalPrice")) for j in completed)
+    return {
+        "booked": len(booked),
+        "sold": sold,
+        "decided": decided,
+        "close_rate": sold / decided if decided else None,
+        "completed": len(completed),
+        "revenue": round(revenue, 2),
+        "avg_ticket": round(revenue / len(completed), 2) if completed else None,
+        "days_to_visit": _median([_days_between(j.get("CreatedDate"), j.get("JobDateTime")) for j in booked]),
+        "days_to_done": _median([_days_between(j.get("CreatedDate"), j.get("LastStatusUpdate")) for j in completed]),
+    }
 
-    job_phone_set = {p for j in jobs for p in job_phones(j)}
-    lead_phone_set = {p for x in leads for p in job_phones(x)}
+
+def _breakdown(booked: list[dict], completed: list[dict], key, today: date) -> list[dict]:
+    names = {key(j) for j in booked + completed}
+    rows = [{"name": n, **_group_stats([j for j in booked if key(j) == n], [j for j in completed if key(j) == n], today)}
+            for n in names]
+    return sorted(rows, key=lambda r: (-r["revenue"], -r["booked"], r["name"]))
+
+
+def _fold(rows: list[dict], booked: list[dict], completed: list[dict], key, today: date, what: str) -> list[dict]:
+    """Keep rows with at least MIN_JOBS bookings or 5% of revenue; fold the rest into one "Other" row."""
+    total = sum(r["revenue"] for r in rows) or 1
+    keep = [r for r in rows if r["booked"] >= MIN_JOBS or r["revenue"] >= 0.05 * total]
+    small = {r["name"] for r in rows} - {r["name"] for r in keep}
+    if len(small) < 2:
+        return rows
+    other = _group_stats([j for j in booked if key(j) in small], [j for j in completed if key(j) in small], today)
+    return keep + [{"name": f"Other {what} ({len(small)})", **other, "folded": sorted(small)}]
+
+
+def _monthly(jobs: list[dict], today: date, months: int = 6) -> list[dict]:
+    first = date(today.year, today.month, 1)
+    starts = []
+    for _ in range(months):
+        starts.insert(0, first)
+        first = (first - timedelta(days=1)).replace(day=1)
+    out = []
+    for i, s in enumerate(starts):
+        e = starts[i + 1] - timedelta(days=1) if i + 1 < len(starts) else today
+        done = [j for j in jobs if _in(completed_on(j), s, e)]
+        out.append({"month": s.isoformat()[:7], "label": s.strftime("%b"), "partial": e == today,
+                     "revenue": round(sum(amount(j.get("JobTotalPrice")) for j in done), 2), "jobs": len(done)})
+    return out
+
+
+def _owed(jobs: list[dict], today: date) -> dict:
+    rows = []
+    for j in jobs:
+        if due := owed(j):
+            rows.append({**_job_row(j), "completed": completed_on(j).isoformat(),
+                         "days": (today - completed_on(j)).days, "owed": round(due, 2),
+                         "insurance": bool(j.get("insurance_company1") or j.get("insurance_company"))})
+    rows.sort(key=lambda r: -r["days"])
+    buckets = []
+    for label, lo, hi in (("0–30 days", 0, 30), ("31–60 days", 31, 60), ("61–90 days", 61, 90), ("90+ days", 91, 10**6)):
+        b = [r for r in rows if lo <= r["days"] <= hi]
+        buckets.append({"label": label, "jobs": len(b), "owed": round(sum(r["owed"] for r in b), 2)})
+    late = [r for r in rows if r["days"] > OWED_ALERT_DAYS]
+    return {"total": round(sum(r["owed"] for r in rows), 2), "jobs": len(rows), "buckets": buckets,
+            "late_total": round(sum(r["owed"] for r in late), 2), "late": late}
+
+
+def _cleanup(jobs: list[dict], today: date) -> dict:
+    not_closed = [{**_job_row(j), "why": "Done at $0" if _status(j).startswith("done") else "Still open"}
+                  for j in jobs if outcome(j, today) == "missing" and amount(j.get("JobAmountDue")) > -1]
+    paid_no_revenue = [{**_job_row(j), "collected": round(-amount(j.get("JobAmountDue")), 2)}
+                       for j in jobs if _status(j).startswith("done") and amount(j.get("JobTotalPrice")) <= 0
+                       and amount(j.get("JobAmountDue")) <= -1]
+    canceled_balance = [{**_job_row(j), "owed": round(amount(j.get("JobAmountDue")), 2)}
+                        for j in jobs if _status(j).startswith("cancel") and amount(j.get("JobAmountDue")) >= 1]
+    for rows in (not_closed, paid_no_revenue, canceled_balance):
+        rows.sort(key=lambda r: r["appt"])
+    return {"not_closed": not_closed, "paid_no_revenue": paid_no_revenue, "canceled_balance": canceled_balance}
+
+
+def _ctm_bookings(market: str, jobs: list[dict], leads: list[dict], act: Activity, start: date) -> dict:
+    job_phones_all = {p for j in jobs for p in job_phones(j)}
+    lead_phones_all = {p for x in leads for p in job_phones(x)}
     booked = []
     for contact, records in act.by_contact.items():
         d = digits10(contact)
         hits = [r for r in records if is_booked_record(r) and r["_day"] >= start]
         if not d or not hits or act.market(records[-1]) != market:
             continue
-        workiz = "job" if d in job_phone_set else "lead only" if d in lead_phone_set else "none"
         first = hits[0]
-        booked.append({"booked_day": first["_day"].isoformat(), "name": first_name(first), "phone": phone(contact),
-                       "agent": (first.get("agent") or {}).get("name") or "—", "quote": ctm_quote(records),
-                       "workiz": workiz})
-    booked.sort(key=lambda b: b["booked_day"])
-    flood = [j for j in window if source_family(j) == FLOOD_IT]
+        booked.append({"booked": first["_day"].isoformat(), "name": first_name(first), "phone": phone(contact),
+                       "agent": (first.get("agent") or {}).get("name") or "—",
+                       "workiz": "job" if d in job_phones_all else "lead only" if d in lead_phones_all else "none"})
+    booked.sort(key=lambda b: b["booked"])
+    return {"total": len(booked), "missing": [b for b in booked if b["workiz"] != "job"]}
 
-    return {
+
+def _actions(r: dict) -> list[str]:
+    """Plain-language list of what needs doing, biggest money first."""
+    out = []
+    o = r["owed"]
+    if o["late"]:
+        big = max(o["late"], key=lambda x: x["owed"])
+        out.append(f"Collect {_money(o['late_total'])} owed for more than {OWED_ALERT_DAYS} days on {len(o['late'])} "
+                   f"jobs. Largest: #{big['serial']} {big['service']}, {_money(big['owed'])}, {big['days']} days.")
+    c = r["cleanup"]
+    if c["paid_no_revenue"]:
+        total = sum(x["collected"] for x in c["paid_no_revenue"])
+        out.append(f"Enter the revenue on {len(c['paid_no_revenue'])} jobs that were paid ({_money(total)}) "
+                   f"but are marked Done at $0.")
+    if c["not_closed"]:
+        out.append(f"Close out {len(c['not_closed'])} jobs whose appointment has passed. "
+                   "Until they are marked Done or canceled, close rate and revenue read low.")
+    if c["canceled_balance"]:
+        total = sum(x["owed"] for x in c["canceled_balance"])
+        out.append(f"Clear the {_money(total)} balance still showing on {len(c['canceled_balance'])} canceled jobs.")
+    if r["on_ctm"] and r["ctm"]["missing"]:
+        out.append(f"{len(r['ctm']['missing'])} call-center bookings in the last {RATE_DAYS} days never became a "
+                   "Workiz job. Check each one.")
+    services = [s for s in r["by_service"] if s["booked"] >= MIN_JOBS]
+    slow = [s for s in services if (s["days_to_visit"] or 0) > SLOW_VISIT_DAYS]
+    if slow:
+        out.append("Customers wait over a week for a first visit on "
+                   + ", ".join(f"{s['name']} ({s['days_to_visit']:.0f} days)" for s in slow) + ".")
+    overall = r["rates"]["close_rate"]
+    weak = [s for s in services if s["decided"] >= MIN_JOBS and s["close_rate"] is not None and overall
+            and s["close_rate"] < overall * 0.6]
+    for s in weak:
+        out.append(f"{s['name']} closes {_pct(s['close_rate'])} of jobs vs {_pct(overall)} overall "
+                   f"({s['sold']} of {s['decided']}).")
+    return out
+
+
+def build_jobs_report(market: str, jobs: list[dict], leads: list[dict], act: Activity, today: date,
+                      period_days: int = PERIOD_DAYS, rate_days: int = RATE_DAYS) -> dict:
+    """`jobs` should reach back about HISTORY_DAYS; `act` is CTM activity covering at least `rate_days`."""
+    period_start = today - timedelta(days=period_days - 1)
+    prior_start, prior_end = period_start - timedelta(days=period_days), period_start - timedelta(days=1)
+    rate_start = today - timedelta(days=rate_days - 1)
+    rate_prior_start, rate_prior_end = rate_start - timedelta(days=rate_days), rate_start - timedelta(days=1)
+
+    def booked_in(s, e):
+        return [j for j in jobs if _in(_day(j.get("CreatedDate")), s, e)]
+
+    def completed_in(s, e):
+        return [j for j in jobs if _in(completed_on(j), s, e)]
+
+    rate_booked, rate_done = booked_in(rate_start, today), completed_in(rate_start, today)
+    rates, prior_rates = _group_stats(rate_booked, rate_done, today), \
+        _group_stats(booked_in(rate_prior_start, rate_prior_end), completed_in(rate_prior_start, rate_prior_end), today)
+    period_done, prior_done = completed_in(period_start, today), completed_in(prior_start, prior_end)
+
+    flood_parts = _breakdown([j for j in rate_booked if source_family(j) == FLOOD_IT],
+                             [j for j in rate_done if source_family(j) == FLOOD_IT],
+                             lambda j: _name(j, "JobSource"), today)
+    by_source = _fold(_breakdown(rate_booked, rate_done, source_family, today), rate_booked, rate_done,
+                      source_family, today, "sources")
+    for s in by_source:
+        s["parts"] = flood_parts if s["name"] == FLOOD_IT and len(flood_parts) > 1 else []
+    service = lambda j: _name(j, "JobType")  # noqa: E731
+
+    report = {
         "market": market,
         "on_ctm": market in {name for name, _ in MARKETS},
-        "start": start.isoformat(),
         "today": today.isoformat(),
-        "totals": {**_totals(window, today), "ctm_matched": len(matched),
-                   "ctm_match_rate": len(matched) / len(window) if window else None},
-        "by_service": _group(window, "JobType", today),
-        "by_source": _group(window, source_family, today),
-        "flood_it": {
-            "totals": _totals(flood, today),
-            "by_source": _group(flood, "JobSource", today),
-            "by_service": _group(flood, "JobType", today),
+        "period": {"days": period_days, "start": period_start.isoformat(), "prior_start": prior_start.isoformat()},
+        "rate_days": rate_days,
+        "headline": {
+            "revenue": {"now": round(sum(amount(j.get("JobTotalPrice")) for j in period_done), 2),
+                        "prior": round(sum(amount(j.get("JobTotalPrice")) for j in prior_done), 2)},
+            "completed": {"now": len(period_done), "prior": len(prior_done)},
+            "booked": {"now": len(booked_in(period_start, today)), "prior": len(booked_in(prior_start, prior_end))},
         },
-        "ticket_grid": _ticket_grid(window, today),
-        "close_grid": _close_grid(window, today),
-        "missing_amounts": missing,
-        "quote_vs_sold": {
-            "jobs": len(quotes), "quoted": round(quoted, 2), "sold": round(sold_q, 2),
-            "ratio": sold_q / quoted if quoted else None,
-            "above": sum(q["sold"] > q["quote"] for q in quotes),
-            "below": sum(q["sold"] < q["quote"] for q in quotes),
-            "rows": sorted(quotes, key=lambda q: q["sold"] - q["quote"]),
-        },
-        "ctm_bookings": {
-            "total": len(booked),
-            "with_job": sum(b["workiz"] == "job" for b in booked),
-            "lead_only": sum(b["workiz"] == "lead only" for b in booked),
-            "none": sum(b["workiz"] == "none" for b in booked),
-            "without_job": [b for b in booked if b["workiz"] != "job"],
-        },
+        "rates": rates,
+        "prior_rates": prior_rates,
+        "monthly": _monthly(jobs, today),
+        "by_service": _fold(_breakdown(rate_booked, rate_done, service, today), rate_booked, rate_done, service,
+                            today, "services"),
+        "by_source": by_source,
+        "owed": _owed(jobs, today),
+        "cleanup": _cleanup(jobs, today),
+        "ctm": _ctm_bookings(market, jobs, leads, act, rate_start),
     }
+    report["headline"]["note"] = _lumpy_note(period_done, prior_done, period_days)
+    report["actions"] = _actions(report)
+    return report
+
+
+def _lumpy_note(now: list[dict], prior: list[dict], days: int) -> str:
+    """Point out when one job is a big share of a period's revenue, so a swing is not misread."""
+    notes = []
+    for label, js in (("this", now), ("the prior", prior)):
+        total = sum(amount(j.get("JobTotalPrice")) for j in js)
+        if not js or not total:
+            continue
+        big = max(js, key=lambda j: amount(j.get("JobTotalPrice")))
+        share = amount(big.get("JobTotalPrice")) / total
+        if share >= 0.25 and len(js) > 1:
+            notes.append(f"one job (#{big.get('SerialId')}, {_name(big, 'JobType')}, "
+                         f"{_money(amount(big.get('JobTotalPrice')))}) is {_pct(share)} of {label} {days} days")
+    return ("Big jobs swing these numbers: " + "; ".join(notes) + ".") if notes else ""
 
 
 # -- loading -------------------------------------------------------------------------------------
 
-JOBS_DAYS = 60  # default report window
-MATCH_MARGIN_DAYS = 30  # older jobs still count when matching a CTM booking to a Workiz job
 
-
-def fetch_workiz(client, start: date) -> tuple[list[dict], list[dict]]:
-    """(jobs, leads) for a report window starting at `start`, from a WorkizClient."""
-    jobs = list(client.iter_jobs(start - timedelta(days=MATCH_MARGIN_DAYS)))
-    leads = list(client.iter_leads(start - timedelta(days=MATCH_MARGIN_DAYS)))
+def fetch_workiz(client, today: date) -> tuple[list[dict], list[dict]]:
+    """(jobs, leads) from a WorkizClient: jobs for about a year (money owed, clean-up, trend), recent leads."""
+    jobs = list(client.iter_jobs(today - timedelta(days=HISTORY_DAYS)))
+    leads = list(client.iter_leads(today - timedelta(days=RATE_DAYS + 30)))
     return jobs, leads
 
 
-# -- tables (shared by the Markdown output and the dashboard) -------------------------------------
+# -- formatting ----------------------------------------------------------------------------------
 
 
 def _pct(v: float | None) -> str:
@@ -281,125 +362,154 @@ def _money(v: float | None) -> str:
     return "—" if v is None else f"${v:,.0f}"
 
 
-def market_rows(reports: list[dict]) -> list[list[str]]:
-    rows = [["Market", "Jobs", "Sold", "Close rate", "Sold $", "Avg ticket", "Collected", "Outstanding",
-             "Amount missing", "Pending", "CTM bookings, no job", "Jobs found in CTM"]]
+def _days(v: float | None) -> str:
+    return "—" if v is None else f"{v:.0f}"
+
+
+def change(now: float | None, prior: float | None, kind: str = "pct") -> str:
+    """'▲ 12% vs prior' style text. kind 'pts' compares rates in percentage points."""
+    if now is None or not prior:
+        return "no prior to compare"
+    if kind == "pts":
+        d = (now - prior) * 100
+        return f"{'▲' if d > 0 else '▼' if d < 0 else '■'} {abs(d):.0f} pts vs {_pct(prior)}"
+    d = (now - prior) / prior * 100
+    return f"{'▲' if d > 0 else '▼' if d < 0 else '■'} {abs(d):.0f}% vs prior"
+
+
+def tiles(r: dict) -> list[tuple[str, str, str]]:
+    """(label, value, comparison) for the five headline numbers."""
+    h, rt, pr, p = r["headline"], r["rates"], r["prior_rates"], r["period"]["days"]
+    return [
+        (f"Revenue · {p} d", _money(h["revenue"]["now"]),
+         f"{change(h['revenue']['now'], h['revenue']['prior'])} ({_money(h['revenue']['prior'])})"),
+        (f"Jobs booked · {p} d", str(h["booked"]["now"]),
+         f"{change(h['booked']['now'], h['booked']['prior'])} ({h['booked']['prior']})"),
+        (f"Close rate · {r['rate_days']} d", _pct(rt["close_rate"]), change(rt["close_rate"], pr["close_rate"], "pts")),
+        (f"Avg ticket · {r['rate_days']} d", _money(rt["avg_ticket"]),
+         f"{change(rt['avg_ticket'], pr['avg_ticket'])} ({_money(pr['avg_ticket'])})"),
+        ("Owed to us", _money(r["owed"]["total"]),
+         f"{_money(r['owed']['late_total'])} over {OWED_ALERT_DAYS} days · {r['owed']['jobs']} jobs"),
+    ]
+
+
+def location_rows(reports: list[dict]) -> list[list[str]]:
+    rows = [["Location", "Revenue (30 d)", "vs prior", "Close rate (90 d)", "Avg ticket", "Owed",
+             f"Owed > {OWED_ALERT_DAYS} d", "Jobs to close out"]]
     for r in reports:
-        t, b = r["totals"], r["ctm_bookings"]
-        ctm = ([f"{b['total'] - b['with_job']} of {b['total']}", f"{t['ctm_matched']} ({_pct(t['ctm_match_rate'])})"]
-               if r.get("on_ctm", True) else ["not on CTM", "not on CTM"])
-        rows.append([r["market"], str(t["jobs"]), str(t["sold"]), f"{_pct(t['close_rate'])} ({t['sold']}/{t['decided']})",
-                     _money(t["sold_amount"]), _money(t["avg_ticket"]), _money(t["collected"]), _money(t["outstanding"]),
-                     str(t["missing"]), str(t["pending"])] + ctm)
+        h, rt = r["headline"]["revenue"], r["rates"]
+        rows.append([r["market"], _money(h["now"]), change(h["now"], h["prior"]).replace(" vs prior", ""),
+                     _pct(rt["close_rate"]), _money(rt["avg_ticket"]), _money(r["owed"]["total"]),
+                     _money(r["owed"]["late_total"]), str(len(r["cleanup"]["not_closed"]))])
     return rows
 
 
-def group_rows(groups: list[dict], label: str) -> list[list[str]]:
-    rows = [[label, "Jobs", "Decided", "Sold", "Close rate", "Sold $", "Avg ticket"]]
-    for g in groups:
-        rows.append([g["name"], str(g["jobs"]), str(g["decided"]), str(g["sold"]), _pct(g["close_rate"]),
-                     _money(g["sold_amount"]), _money(g["avg_ticket"])])
+def service_rows(r: dict) -> list[list[str]]:
+    rows = [["Service", "Booked", "Close rate", "Revenue", "Avg ticket", "Days to 1st visit", "Days to done"]]
+    for s in r["by_service"]:
+        rows.append([s["name"], str(s["booked"]), f"{_pct(s['close_rate'])} ({s['sold']}/{s['decided']})",
+                     _money(s["revenue"]), _money(s["avg_ticket"]), _days(s["days_to_visit"]), _days(s["days_to_done"])])
     return rows
 
 
-def ticket_grid_rows(report: dict) -> list[list[str]]:
-    grid = report["ticket_grid"]
-    rows = [["Service", "All sources"] + grid["columns"]]
-    for r in grid["rows"]:
-        cells = [r["cells"].get(c) for c in grid["columns"]]
-        rows.append([r["service"], f"{_money(r['avg_ticket'])} ({r['sold']})"]
-                    + [f"{_money(c['avg_ticket'])} ({c['sold']})" if c else "—" for c in cells])
+def source_rows(r: dict) -> list[list[str]]:
+    rows = [["Lead source", "Booked", "Close rate", "Revenue", "Avg ticket"]]
+
+    def line(s: dict, name: str) -> list[str]:
+        return [name, str(s["booked"]), f"{_pct(s['close_rate'])} ({s['sold']}/{s['decided']})",
+                _money(s["revenue"]), _money(s["avg_ticket"])]
+
+    for s in r["by_source"]:
+        rows.append(line(s, s["name"]))
+        rows += [line(p, "   ↳ " + p["name"].split(" - ", 1)[-1]) for p in s["parts"]]
     return rows
 
 
-def close_grid_rows(report: dict) -> list[list[str]]:
-    grid = report["close_grid"]
-
-    def cell(c: dict | None) -> str:
-        return f"{_pct(c['close_rate'])} ({c['sold']}/{c['decided']})" if c and c["decided"] else "—"
-
-    rows = [["Service", "All sources"] + grid["columns"]]
-    for r in grid["rows"]:
-        rows.append([r["service"], cell(r)] + [cell(r["cells"].get(c)) for c in grid["columns"]])
+def owed_bucket_rows(r: dict) -> list[list[str]]:
+    rows = [["Waiting since completed", "Jobs", "Owed"]]
+    rows += [[b["label"], str(b["jobs"]), _money(b["owed"])] for b in r["owed"]["buckets"]]
     return rows
 
 
-def flood_it_summary(report: dict) -> str:
-    t = report["flood_it"]["totals"]
-    if not t["jobs"]:
-        return "No Flood It jobs in this window."
-    return (f"Flood It: {t['jobs']} jobs, {t['sold']} sold, close rate {_pct(t['close_rate'])} "
-            f"({t['sold']}/{t['decided']}), sold {_money(t['sold_amount'])}, avg ticket {_money(t['avg_ticket'])}, "
-            f"{t['missing']} with the amount missing, {t['pending']} pending.")
-
-
-def quote_rows(report: dict) -> list[list[str]]:
-    rows = [["Job #", "Appt", "Service", "Customer", "Quote (CTM)", "Sold (Workiz)", "Difference"]]
-    for q in report["quote_vs_sold"]["rows"]:
-        diff = q["sold"] - q["quote"]
-        rows.append([str(q["serial"]), q["job_date"], q["service"], q["customer"], _money(q["quote"]),
-                     _money(q["sold"]), ("+" if diff > 0 else "−" if diff < 0 else "") + _money(abs(diff))])
+def owed_rows(r: dict) -> list[list[str]]:
+    rows = [["Job #", "Service", "Customer", "Completed", "Days waiting", "Owed", "Insurance"]]
+    rows += [[str(x["serial"]), x["service"], x["customer"], x["completed"], str(x["days"]), _money(x["owed"]),
+              "yes" if x["insurance"] else ""] for x in r["owed"]["late"]]
     return rows
 
 
-def missing_rows(report: dict) -> list[list[str]]:
-    rows = [["Job #", "Appt", "Status", "Service", "Source", "Customer", "Tech", "Why"]]
-    for m in report["missing_amounts"]:
-        rows.append([str(m["serial"]), m["job_date"], m["status"], m["service"], m["source"], m["customer"],
-                     m["tech"], m["reason"]])
+def not_closed_rows(r: dict) -> list[list[str]]:
+    rows = [["Job #", "Appt", "Status", "Why", "Service", "Source", "Customer", "Tech"]]
+    rows += [[str(x["serial"]), x["appt"], x["status"], x["why"], x["service"], x["source"], x["customer"], x["tech"]]
+             for x in r["cleanup"]["not_closed"]]
     return rows
 
 
-def booking_rows(report: dict) -> list[list[str]]:
-    rows = [["Booked in CTM", "Name", "Phone", "Agent", "Quote", "In Workiz"]]
-    for b in report["ctm_bookings"]["without_job"]:
-        rows.append([b["booked_day"], b["name"], b["phone"], b["agent"], _money(b["quote"]),
-                     "Lead only, no job" if b["workiz"] == "lead only" else "Not found"])
+def paid_no_revenue_rows(r: dict) -> list[list[str]]:
+    rows = [["Job #", "Appt", "Service", "Customer", "Collected"]]
+    rows += [[str(x["serial"]), x["appt"], x["service"], x["customer"], _money(x["collected"])]
+             for x in r["cleanup"]["paid_no_revenue"]]
     return rows
 
 
-def quote_summary(report: dict) -> str:
-    q = report["quote_vs_sold"]
-    if not report.get("on_ctm", True):
-        return "This location is not on CTM yet, so there are no call-center quotes or bookings to compare."
-    if not q["jobs"]:
-        return "No sold job has a CTM quote to compare yet."
-    return (f"{q['jobs']} sold jobs have a call-center quote: quoted {_money(q['quoted'])}, sold {_money(q['sold'])} "
-            f"({_pct(q['ratio'])} of quote). Sold above quote: {q['above']} · below: {q['below']}.")
+def canceled_rows(r: dict) -> list[list[str]]:
+    rows = [["Job #", "Appt", "Service", "Customer", "Balance showing"]]
+    rows += [[str(x["serial"]), x["appt"], x["service"], x["customer"], _money(x["owed"])]
+             for x in r["cleanup"]["canceled_balance"]]
+    return rows
+
+
+def ctm_rows(r: dict) -> list[list[str]]:
+    rows = [["Booked in CTM", "Name", "Phone", "Agent", "In Workiz"]]
+    rows += [[b["booked"], b["name"], b["phone"], b["agent"], "Lead only" if b["workiz"] == "lead only" else "Not found"]
+             for b in r["ctm"]["missing"]]
+    return rows
+
+
+def work_lists(r: dict) -> list[tuple[str, list[list[str]]]]:
+    """(heading, rows) for the lists people work through; empty lists are left out."""
+    lists = [
+        (f"Owed for more than {OWED_ALERT_DAYS} days", owed_rows(r)),
+        ("Jobs to close out (still open after the appointment, or Done at $0)", not_closed_rows(r)),
+        ("Paid, but revenue never entered", paid_no_revenue_rows(r)),
+        ("Canceled, but a balance still shows", canceled_rows(r)),
+    ]
+    if r["on_ctm"]:
+        lists.append((f"Call-center bookings with no Workiz job (last {r['rate_days']} days)", ctm_rows(r)))
+    return [(h, rows) for h, rows in lists if len(rows) > 1]
+
+
+DEFINITIONS = (
+    "Revenue = jobs marked Done (or done, waiting for payment) with a total above $0, counted on the day they were "
+    "completed. Close rate = of jobs booked in the window, sold ÷ decided (sold, canceled, or appointment passed); "
+    "future and in-progress jobs are left out. Owed = open balance on completed jobs, aged from completion. "
+    "Days are medians, from the day the job was booked in Workiz. Flood It sources are combined, with each "
+    "shown underneath; small sources and services are grouped as Other. Call-center bookings are matched to Workiz by phone number."
+)
 
 
 def render_jobs_markdown(reports: list[dict]) -> str:
     def table(rows: list[list[str]]) -> str:
-        if len(rows) == 1:
-            return "_None._"
         out = ["| " + " | ".join(rows[0]) + " |", "|" + "---|" * len(rows[0])]
-        out += ["| " + " | ".join(c.replace("|", "/") for c in r) + " |" for r in rows[1:]]
-        return "\n".join(out)
+        return "\n".join(out + ["| " + " | ".join(c.replace("|", "/") for c in row) + " |" for row in rows[1:]])
 
-    parts = ["# Jobs & Revenue (Workiz)", ""]
-    if reports:
-        parts += [f"Jobs created {reports[0]['start']} to {reports[0]['today']}.", "", table(market_rows(reports))]
+    parts = ["# Jobs & Revenue", ""]
+    if len(reports) > 1:
+        parts += [table(location_rows(reports)), ""]
     for r in reports:
-        parts += ["", f"## {r['market']}", "", "### Close rate by service", "", table(group_rows(r["by_service"], "Service")),
-                  "", "### Close rate by service and source", "", CLOSE_NOTE, "", table(close_grid_rows(r)),
-                  "", "### Close rate by lead source", "", table(group_rows(r["by_source"], "Source")),
-                  "", "### Flood It", "", flood_it_summary(r), "",
-                  table(group_rows(r["flood_it"]["by_source"], "Flood It source")), "",
-                  table(group_rows(r["flood_it"]["by_service"], "Service")),
-                  "", "### Average ticket by service and source", "", TICKET_NOTE, "", table(ticket_grid_rows(r)),
-                  "", "### Quote vs sold", "", quote_summary(r), "", table(quote_rows(r)),
-                  "", "### Sold amount missing", "", table(missing_rows(r)),
-                  "", "### CTM bookings with no Workiz job", "", table(booking_rows(r))]
-    parts += ["", DEFINITIONS]
+        parts += [f"## {r['market']}", "", f"As of {r['today']}.", ""]
+        parts += [f"- **{label}:** {value} ({cmp})" for label, value, cmp in tiles(r)]
+        if r["headline"]["note"]:
+            parts += ["", r["headline"]["note"]]
+        parts += ["", "### Needs attention", ""] + [f"{i}. {a}" for i, a in enumerate(r["actions"], 1)]
+        parts += ["", "### Revenue by month", "", table([["Month", "Revenue", "Jobs"]] + [
+            [m["month"] + (" (so far)" if m["partial"] else ""), _money(m["revenue"]), str(m["jobs"])]
+            for m in r["monthly"]])]
+        parts += ["", f"### By service (last {r['rate_days']} days)", "", table(service_rows(r)),
+                  "", f"### By lead source (last {r['rate_days']} days)", "", table(source_rows(r)),
+                  "", "### Money owed", "", table(owed_bucket_rows(r))]
+        for heading, rows in work_lists(r):
+            parts += ["", f"### {heading}", "", table(rows)]
+        parts.append("")
+    parts += [DEFINITIONS]
     return "\n".join(parts) + "\n"
-
-
-CLOSE_NOTE = "Close rate, with sold ÷ decided jobs in brackets. Flood It sources are combined."
-TICKET_NOTE = "Average sold ticket, with the number of sold jobs in brackets. Flood It sources are combined."
-
-DEFINITIONS = (
-    "Sold = marked Done in Workiz with revenue above $0. Close rate = sold ÷ decided (sold, canceled, or "
-    "appointment date passed); future appointments and in-progress jobs are pending and left out, even with a "
-    "quoted price. Amount missing = Done at $0, or appointment passed and not closed out. Quote = the call center's booked amount in CTM, else the largest $ in the call summaries. "
-    "Matching is by phone number (last 10 digits)."
-)

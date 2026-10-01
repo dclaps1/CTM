@@ -92,22 +92,25 @@ Each franchise has its own Workiz account. Add its API token (and secret) as env
 
 ```bash
 python -m app.cli workiz-probe --market "Greater Boston"   # test the connection, show which job fields are filled
-python -m app.cli jobs --market "Greater Boston" --days 60 # Jobs & Revenue report (Markdown; --json for raw)
-python -m app.cli brief --dashboard dashboard.html         # the Jobs & Revenue tab fills in for every market with a token
+python -m app.cli jobs --pdf jobs.pdf                       # Jobs & Revenue report for every location with a token
+python -m app.cli jobs --market "Greater Boston" --html jobs.html   # or --markdown / --json
+python -m app.cli brief --dashboard dashboard.html         # the dashboard's Jobs & Revenue tab shows the same report
 ```
 
-The report matches Workiz jobs to CTM contacts by phone number (last 10 digits) and shows, per market: sold
-amount, close rate overall, by service and by lead source (all Flood It sources rolled into one, with a Flood It
-section breaking it out by source and service), average ticket by service and source, quote vs sold, jobs whose sold amount was never
-entered, and CTM bookings with no Workiz job. Definitions are at the top of `app/jobs.py`:
+The report is built for a leadership meeting: page 1 has five headline numbers (revenue and jobs booked over 30 days,
+close rate and average ticket over 90 days, money owed), a "Needs attention" list written from the data, and revenue
+by month. Page 2 breaks it down by service and lead source (Flood It sources shown under Flood It; small ones grouped
+as Other). The rest are the lists to work: money owed over 30 days, jobs to close out, paid jobs with no revenue
+entered, canceled jobs still showing a balance, and call-center bookings that never reached Workiz.
+Definitions are at the top of `app/jobs.py`:
 
-- **Sold**: marked Done (or "done pending approval") with revenue above $0. Until then a job's price is the
-  call center's quote. **Close rate**: sold ÷ decided (sold, canceled, or appointment date passed). Future
-  appointments and in-progress jobs are left out, even when they carry a quoted price.
-- **Sold amount missing**: Done at $0, or the appointment date passed and the job was never closed out.
-- **Quote**: the amount the call center booked in CTM (sale value), else the largest $ in the call summaries.
-  So quote vs sold only covers jobs that came through the call center.
-- Workiz has no field for who ran the estimate, so close rate is per franchise (market), not per person.
+- **Revenue**: jobs marked Done (or done, waiting for payment) with a total above $0, counted on the day their status
+  last changed. Until then a job's price is the call center's quote.
+- **Close rate**: of jobs booked in the window, sold ÷ decided (sold, canceled, or appointment date passed).
+  Future and in-progress jobs are left out.
+- **Owed**: open balance on completed jobs, aged from completion.
+- Workiz has no field for who ran the estimate, so close rate is per location, not per person.
+- `--pdf` needs Chromium or Chrome on the machine (or set `CHROME_PATH`); otherwise use `--html` and print it.
 
 Workiz API notes: `job/all` counts `offset` in pages, `lead/all` in records; `records` is capped at 100;
 `job/all` returns open jobs only unless `only_open=false`; bursts of calls get HTTP 429 for a while.
