@@ -12,7 +12,7 @@ from datetime import date
 from html import escape
 
 from app.brief_render import _action_lines, _follow, _label, _rows, money, pct, status_line, title
-from app.jobs import (DEFINITIONS, TICKET_NOTE, booking_rows, flood_it_summary, group_rows, market_rows,
+from app.jobs import (CLOSE_NOTE, DEFINITIONS, TICKET_NOTE, booking_rows, close_grid_rows, flood_it_summary, group_rows, market_rows,
                       missing_rows, quote_rows, quote_summary, ticket_grid_rows)
 
 STATUS_CLASS = {"green": "g", "yellow": "y", "red": "r", "none": "n"}
@@ -180,6 +180,8 @@ def _jobs_panel(reports: list[dict]) -> str:
              _jobs_tiles(reports), "<h2>Markets</h2>", _table(market_rows(reports))]
     for r in reports:
         parts += [f"<h2>{escape(r['market'])}: close rate by service</h2>", _table(group_rows(r["by_service"], "Service")),
+                  f"<h2>{escape(r['market'])}: close rate by service and source</h2>",
+                  f"<p class='fine'>{escape(CLOSE_NOTE)}</p>", _table(close_grid_rows(r)),
                   f"<h2>{escape(r['market'])}: average ticket by service and source</h2>",
                   f"<p class='fine'>{escape(TICKET_NOTE)}</p>", _table(ticket_grid_rows(r)),
                   f"<h2>{escape(r['market'])}: close rate by lead source</h2>", _table(group_rows(r["by_source"], "Source")),

@@ -128,6 +128,28 @@ def _ticket_grid(jobs: list[dict], today: date) -> dict:
     return {"columns": columns, "rows": rows}
 
 
+def _close_grid(jobs: list[dict], today: date) -> dict:
+    """Close rate by service (rows) and lead source (columns), over every job in the window."""
+    by_source = _group(jobs, source_family, today)
+    by_source.sort(key=lambda g: (-g["decided"], -g["jobs"], g["name"]))
+    columns = [g["name"] for g in by_source[:TICKET_COLUMNS]]
+    if len(by_source) > TICKET_COLUMNS:
+        columns.append("Other")
+
+    def column(j: dict) -> str:
+        return source_family(j) if source_family(j) in columns else "Other"
+
+    rows = []
+    for g in _group(jobs, "JobType", today):
+        service_jobs = [j for j in jobs if _name(j, "JobType") == g["name"]]
+        cells = {c["name"]: {"sold": c["sold"], "decided": c["decided"], "close_rate": c["close_rate"]}
+                 for c in _group(service_jobs, column, today)}
+        rows.append({"service": g["name"], "sold": g["sold"], "decided": g["decided"],
+                     "close_rate": g["close_rate"], "cells": cells})
+    rows.sort(key=lambda r: (-r["decided"], r["service"]))
+    return {"columns": columns, "rows": rows}
+
+
 def _ctm_index(act: Activity) -> dict[str, list[dict]]:
     index: dict[str, list[dict]] = defaultdict(list)
     for contact, records in act.by_contact.items():
@@ -212,6 +234,7 @@ def build_jobs_report(market: str, jobs: list[dict], leads: list[dict], act: Act
             "by_service": _group(flood, "JobType", today),
         },
         "ticket_grid": _ticket_grid(window, today),
+        "close_grid": _close_grid(window, today),
         "missing_amounts": missing,
         "quote_vs_sold": {
             "jobs": len(quotes), "quoted": round(quoted, 2), "sold": round(sold_q, 2),
@@ -284,6 +307,18 @@ def ticket_grid_rows(report: dict) -> list[list[str]]:
     return rows
 
 
+def close_grid_rows(report: dict) -> list[list[str]]:
+    grid = report["close_grid"]
+
+    def cell(c: dict | None) -> str:
+        return f"{_pct(c['close_rate'])} ({c['sold']}/{c['decided']})" if c and c["decided"] else "—"
+
+    rows = [["Service", "All sources"] + grid["columns"]]
+    for r in grid["rows"]:
+        rows.append([r["service"], cell(r)] + [cell(r["cells"].get(c)) for c in grid["columns"]])
+    return rows
+
+
 def flood_it_summary(report: dict) -> str:
     t = report["flood_it"]["totals"]
     if not t["jobs"]:
@@ -339,6 +374,7 @@ def render_jobs_markdown(reports: list[dict]) -> str:
         parts += [f"Jobs created {reports[0]['start']} to {reports[0]['today']}.", "", table(market_rows(reports))]
     for r in reports:
         parts += ["", f"## {r['market']}", "", "### Close rate by service", "", table(group_rows(r["by_service"], "Service")),
+                  "", "### Close rate by service and source", "", CLOSE_NOTE, "", table(close_grid_rows(r)),
                   "", "### Close rate by lead source", "", table(group_rows(r["by_source"], "Source")),
                   "", "### Flood It", "", flood_it_summary(r), "",
                   table(group_rows(r["flood_it"]["by_source"], "Flood It source")), "",
@@ -351,6 +387,7 @@ def render_jobs_markdown(reports: list[dict]) -> str:
     return "\n".join(parts) + "\n"
 
 
+CLOSE_NOTE = "Close rate, with sold ÷ decided jobs in brackets. Flood It sources are combined."
 TICKET_NOTE = "Average sold ticket, with the number of sold jobs in brackets. Flood It sources are combined."
 
 DEFINITIONS = (

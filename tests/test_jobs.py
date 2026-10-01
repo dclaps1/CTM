@@ -80,6 +80,10 @@ def test_flood_it_rollup_and_ticket_grid():
     water = next(x for x in grid["rows"] if x["service"] == "Water Damage")
     assert water["avg_ticket"] == 1825 and water["cells"]["Google"] == {"sold": 1, "avg_ticket": 650}
     assert water["cells"]["Flood It"] == {"sold": 1, "avg_ticket": 3000}
+    close = {x["service"]: x for x in r["close_grid"]["rows"]}
+    assert close["Water Damage"]["cells"]["Flood It"] == {"sold": 1, "decided": 2, "close_rate": 0.5}
+    assert close["Mold Mitigation"]["cells"]["Flood It"]["close_rate"] == 1.0
+    assert close["Water Damage"]["cells"]["Google"]["close_rate"] == 0.5  # sold, missing; two pending left out
 
 
 def test_markdown_and_dashboard_tab():
@@ -87,7 +91,8 @@ def test_markdown_and_dashboard_tab():
 
     r = build_jobs_report("Greater Boston", jobs(), [], activity(), START, TODAY)
     md = render_jobs_markdown([r])
-    for heading in ("Close rate by service", "Flood It", "Average ticket by service and source", "Quote vs sold", "Sold amount missing", "CTM bookings with no Workiz job"):
+    for heading in ("Close rate by service", "Flood It", "Average ticket by service and source",
+                    "Close rate by service and source", "Quote vs sold", "Sold amount missing", "CTM bookings with no Workiz job"):
         assert heading in md
     brief = build_brief(scenario(), DAY, now=ts(23))
     page = render_dashboard(brief, jobs=[r])
