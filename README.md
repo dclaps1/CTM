@@ -100,9 +100,10 @@ amount, close rate overall, by service and by lead source (all Flood It sources 
 section breaking it out by source and service), average ticket by service and source, quote vs sold, jobs whose sold amount was never
 entered, and CTM bookings with no Workiz job. Definitions are at the top of `app/jobs.py`:
 
-- **Sold**: not canceled and the job total is above $0. **Close rate**: sold ÷ decided (sold, canceled, or
-  appointment date passed). Future appointments and in-progress jobs with no amount yet are left out.
-- **Sold amount missing**: not canceled or in progress, $0, appointment date passed.
+- **Sold**: marked Done (or "done pending approval") with revenue above $0. Until then a job's price is the
+  call center's quote. **Close rate**: sold ÷ decided (sold, canceled, or appointment date passed). Future
+  appointments and in-progress jobs are left out, even when they carry a quoted price.
+- **Sold amount missing**: Done at $0, or the appointment date passed and the job was never closed out.
 - **Quote**: the amount the call center booked in CTM (sale value), else the largest $ in the call summaries.
   So quote vs sold only covers jobs that came through the call center.
 - Workiz has no field for who ran the estimate, so close rate is per franchise (market), not per person.

@@ -5,10 +5,12 @@
 Definitions (the same every run):
 
 - A job counts in the window when it was *created* in Workiz on or after `start`.
-- Sold: not canceled and the job total is above $0.
+- The call center books a job with a quoted price; the franchise owner completes it and enters the revenue.
+- Sold: marked Done (or "done pending approval") in Workiz with a job total above $0.
 - Decided: sold, canceled, or the appointment date has passed. Close rate = sold ÷ decided.
-  Future appointments and jobs "In progress" with no amount yet are "pending" and left out.
-- Sold amount missing: not canceled or in progress, $0 total, and the appointment date has passed.
+  Future appointments and jobs "In progress" are "pending" and left out, even if they carry a quoted price.
+- Sold amount missing / not closed out: marked Done at $0, or the appointment date has passed and the job
+  is neither Done, canceled nor in progress. These count as decided, not sold.
 - Quote: what the call center booked in CTM (sale value), else the largest dollar amount in that
   contact's call summaries. Quote vs sold uses jobs that have both.
 - CTM booking: a contact in this market marked Booked in CTM during the window. It "has a Workiz job"
@@ -50,12 +52,13 @@ def job_phones(job: dict) -> set[str]:
 
 
 def outcome(job: dict, today: date) -> str:
-    """sold / canceled / missing (past date, no amount) / pending (future or in progress, no amount)."""
+    """sold (Done with revenue) / canceled / missing (Done at $0, or past date and not closed out) /
+    pending (future or in progress; a booked job's price is only the quote until it is Done)."""
     status = str(job.get("Status") or "").lower()
     if status.startswith("cancel"):
         return "canceled"
-    if amount(job.get("JobTotalPrice")) > 0:
-        return "sold"
+    if status.startswith("done"):
+        return "sold" if amount(job.get("JobTotalPrice")) > 0 else "missing"
     if status == "in progress":
         return "pending"
     when = _day(job.get("JobDateTime"))
@@ -391,8 +394,8 @@ CLOSE_NOTE = "Close rate, with sold ÷ decided jobs in brackets. Flood It source
 TICKET_NOTE = "Average sold ticket, with the number of sold jobs in brackets. Flood It sources are combined."
 
 DEFINITIONS = (
-    "Sold = not canceled and job total above $0. Close rate = sold ÷ decided (sold, canceled, or appointment "
-    "date passed); future appointments and in-progress jobs without an amount are pending and left out. "
-    "Amount missing = not canceled or in progress, $0, appointment passed. Quote = the call center's booked amount in CTM, else the largest $ in the call summaries. "
+    "Sold = marked Done in Workiz with revenue above $0. Close rate = sold ÷ decided (sold, canceled, or "
+    "appointment date passed); future appointments and in-progress jobs are pending and left out, even with a "
+    "quoted price. Amount missing = Done at $0, or appointment passed and not closed out. Quote = the call center's booked amount in CTM, else the largest $ in the call summaries. "
     "Matching is by phone number (last 10 digits)."
 )

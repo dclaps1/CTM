@@ -44,6 +44,14 @@ def jobs():
     ]
 
 
+def test_quoted_price_is_not_sold_until_done():
+    assert outcome(job(11, "2026-09-20", "2026-10-05", "In progress", 699), TODAY) == "pending"  # booked, future
+    assert outcome(job(12, "2026-09-20", "2026-10-05", "Submitted", 249), TODAY) == "pending"
+    assert outcome(job(13, "2026-09-01", "2026-09-10", "Submitted", 249), TODAY) == "missing"   # never closed out
+    assert outcome(job(14, "2026-09-01", "2026-09-10", "done pending approval", 900), TODAY) == "sold"
+    assert outcome(job(15, "2026-09-01", "2026-09-10", "Canceled", 1928), TODAY) == "canceled"
+
+
 def test_outcomes():
     out = [outcome(j, TODAY) for j in jobs()]
     assert out == ["sold", "canceled", "missing", "missing", "pending", "sold", "pending", "sold", "canceled", "sold"]
