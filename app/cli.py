@@ -5,6 +5,7 @@
     python -m app.cli sync [--days 90]
     python -m app.cli agents
     python -m app.cli brief [--date 2026-09-30] [--html brief.html] [--markdown brief.md] [--json brief.json]
+                            [--dashboard dashboard.html] [--notes notes.txt]
 """
 from __future__ import annotations
 
@@ -22,6 +23,7 @@ from app import db
 from app.auth import hash_password
 from app.brief import build_brief, load_activity
 from app.brief_render import render_html, render_markdown
+from app.dashboard import render_dashboard
 from app.config import get_settings
 from app.ctm_client import CTMClient
 from app.models import ROLES, Agent, User
@@ -46,6 +48,7 @@ def main(argv: list[str] | None = None) -> int:
     br.add_argument("--html", type=Path, help="write email-ready HTML here")
     br.add_argument("--markdown", type=Path, help="write Markdown here (printed when no output is given)")
     br.add_argument("--json", type=Path, help="write the raw numbers and action lists here")
+    br.add_argument("--dashboard", type=Path, help="write the full dashboard page (tabs, charts) here")
     br.add_argument("--notes", type=Path, help="text file with commentary to put under the title")
     args = parser.parse_args(argv)
 
@@ -93,7 +96,9 @@ def run_brief(args: argparse.Namespace, settings) -> int:
         args.json.write_text(json.dumps(brief, indent=2, default=str))
     if args.html:
         args.html.write_text(render_html(brief, notes))
-    if args.markdown or not (args.json or args.html):
+    if args.dashboard:
+        args.dashboard.write_text(render_dashboard(brief, notes))
+    if args.markdown or not (args.json or args.html or args.dashboard):
         text = render_markdown(brief, notes)
         if args.markdown:
             args.markdown.write_text(text)

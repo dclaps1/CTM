@@ -111,3 +111,15 @@ def test_renderers_include_every_section():
     html = render_html(brief)
     assert html.startswith("<h2>Daily Call Center Brief — Wednesday, Sep 30</h2>")
     assert "<script" not in html and "(617) 555-0003" in html
+
+
+def test_dashboard_has_tabs_charts_and_trend():
+    from app.dashboard import render_dashboard
+
+    brief = build_brief(scenario(), DAY, now=ts(23))
+    assert len(brief["trend"]) == 14 and brief["trend"][-1]["day"] == DAY.isoformat()
+    page = render_dashboard(brief, notes="Headline.")
+    assert "<title>Voda Daily Dashboard</title>" in page
+    for tab in ("overview", "calls", "franchise", "reputation", "jobs", "financials"):
+        assert f"data-tab='{tab}'" in page or f'data-tab="{tab}"' in page
+    assert "class='chart'" in page and "Headline." in page

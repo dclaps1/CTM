@@ -20,6 +20,7 @@ from zoneinfo import ZoneInfo
 from app.ctm_client import CTMClient
 
 HISTORY_DAYS = 90  # how far back we look to decide whether a contact is a new lead
+TREND_DAYS = 14  # daily numbers kept for trend charts
 
 # lead_status values set by agents in CTM
 OPPORTUNITY_STATUSES = {"Booked", "Bookable-Not Booked", "Unbookable-Price", "Unbookable-Schedule", "Unbookable"}
@@ -510,9 +511,9 @@ def build_brief(act: Activity, d: date, targets: Targets = Targets(), now: float
     prior = d - timedelta(days=1)
     week = [d - timedelta(days=i) for i in range(1, 8)]  # the 7 days before d, for the averages
     recent = [d - timedelta(days=i) for i in range(1, 7)]  # d plus these = "last 7 days" for agents/markets
-    today = day_numbers(act, d)
-    yesterday = day_numbers(act, prior)
-    seven = combine([day_numbers(act, x) for x in week], "7-day")
+    numbers = {x: day_numbers(act, x) for x in [d - timedelta(days=i) for i in range(TREND_DAYS)]}
+    today, yesterday = numbers[d], numbers[prior]
+    seven = combine([numbers[x] for x in week], "7-day")
 
     now = now if now is not None else datetime.now(timezone.utc).timestamp()
     end_prior = _end_of(act, prior)
@@ -543,6 +544,7 @@ def build_brief(act: Activity, d: date, targets: Targets = Targets(), now: float
         "generated_at": datetime.fromtimestamp(now, act.tz).isoformat(timespec="minutes"),
         "targets": asdict(targets),
         "numbers": {"day": today.as_dict(), "prior": yesterday.as_dict(), "seven_day": seven.as_dict()},
+        "trend": [numbers[x].as_dict() for x in sorted(numbers)],
         "status": {k: {"value": v, "target": t, "status": status(v, t)} for k, (v, t) in scores.items()},
         "actions": {
             "call_back": unreached_missed(act, d, as_of=now),
