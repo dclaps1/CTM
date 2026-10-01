@@ -31,6 +31,12 @@
   225 jobs in the last 12 months, 13 team members, 46 leads). Jobs are Fayetteville, Bentonville, Bella Vista, Rogers,
   Springdale and Fort Smith. It has 18 "done pending approval / Payment Pending" jobs in 2026 (same question as
   Greensboro).
+- Fort Worth Arlington (Workiz-only, not on CTM; token `WORKIZ_TOKEN_FORT_WORTH_ARLINGTON`, plus a secret). Checked
+  2026-10-01: connects and works (24 team members), but the account has gone quiet. 284 jobs all time, Oct 2024 to
+  Dec 12 2025; the newest job was created Dec 10 2025 and the newest lead is from Nov 7 2025. Nothing in 2026. Last
+  12 months: 48 jobs (32 Oct, 14 Nov, 2 Dec 2025), about $27.8k closed revenue, 6 "done pending approval". Jobs are
+  Fort Worth, Arlington, Crowley, North Richland Hills, Benbrook and Weatherford TX. Ask Dan whether this location
+  closed, or moved to a different Workiz account. If it moved, it needs a new token.
 - Houston Sugar Land (token `WORKIZ_TOKEN_HOUSTON_SUGAR_LAND`, plus a secret). Checked 2026-10-01: Workiz rejects
   the token with HTTP 401, while other markets connect fine with the same code. Dan thinks this location may be
   closed. Come back to it: confirm with Dan whether it is closed; if so, remove its token/secret so it stops
