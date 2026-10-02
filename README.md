@@ -128,6 +128,7 @@ because the call center does not get every call for its markets. Definitions are
 
 ```bash
 python -m app.cli pcc --pdf pcc.pdf          # or --html / --markdown / --json; --days 30 for a shorter window
+python -m app.cli roi --month 2026-09 --fee 1500 --pdf roi.pdf   # ROI statement per market against the monthly fee
 ```
 
 ## Configuration
