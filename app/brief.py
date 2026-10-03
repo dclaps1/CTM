@@ -62,7 +62,7 @@ _STATE_SUFFIX = re.compile(r"\s[A-Z]{2}$")
 
 @dataclass(frozen=True)
 class Targets:
-    answered_live: float = 0.85
+    answered_live: float = 1.0
     calls_handled: float = 0.90
     callback_60s: float = 0.80
     web_leads_5min: float = 0.90

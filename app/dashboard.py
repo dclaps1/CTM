@@ -11,6 +11,7 @@ from __future__ import annotations
 from datetime import date
 from html import escape
 
+from app.brief import Targets
 from app.brief_render import _action_lines, _follow, _label, _rows, money, pct, status_line, title
 from app.jobs import (DEFINITIONS, location_rows, owed_bucket_rows, service_rows, source_rows, tiles,
                       work_lists)
@@ -70,8 +71,9 @@ def _line_chart(trend: list[dict]) -> str:
             parts.append(f"<circle cx='{round(x, 1)}' cy='{y(v)}' r='8' class='hit'><title>{label}: {pct(v)}</title></circle>")
         x, v = pts[-1]
         parts.append(f"<circle cx='{round(x, 1)}' cy='{y(v)}' r='4' class='dot {cls}'/>")
-    parts.append(f"<line x1='{left}' x2='{w - 12}' y1='{y(0.85)}' y2='{y(0.85)}' class='target'/>"
-                 f"<text x='{w - 14}' y='{y(0.85) - 5}' text-anchor='end' class='tick'>Target 85%</text></svg>")
+    goal = Targets().answered_live
+    parts.append(f"<line x1='{left}' x2='{w - 12}' y1='{y(goal)}' y2='{y(goal)}' class='target'/>"
+                 f"<text x='{w - 14}' y='{y(goal) + 12}' text-anchor='end' class='tick'>Target {pct(goal)}</text></svg>")
     return "".join(parts)
 
 
