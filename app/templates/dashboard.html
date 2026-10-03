@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>{{ 'Team dashboard' if user.is_manager and not filters.agent_id else 'My dashboard' if not user.is_manager else 'Agent dashboard' }}</h1>
+    <p class="sub">{{ filters.start.strftime('%b %d, %Y') }} – {{ filters.end.strftime('%b %d, %Y') }} · {{ settings.timezone }}</p>
+  </div>
+  <a class="btn secondary" href="/calls?{{ query }}">View calls</a>
+</div>
+{% with show=['agent', 'source'] %}{% include "_filters.html" %}{% endwith %}
+
+<div class="tiles">
+  <div class="tile"><div class="label">Total calls</div><div class="value">{{ summary.total }}</div>
+    <div class="hint">{{ summary.inbound }} in · {{ summary.outbound }} out</div></div>
+  <div class="tile"><div class="label">Answer rate (inbound)</div><div class="value">{{ summary.answer_rate | pct(100) }}</div>
+    <div class="hint">{{ summary.inbound - summary.missed }} of {{ summary.inbound }} answered</div></div>
+  <div class="tile"><div class="label">Missed calls</div><div class="value">{{ summary.missed }}</div>
+    <div class="hint">{{ summary.voicemail }} to voicemail · <a href="/callbacks?{{ query }}">callbacks</a></div></div>
+  <div class="tile"><div class="label">Avg talk time</div><div class="value">{{ summary.avg_talk | duration }}</div>
+    <div class="hint">{{ summary.total_talk | duration }} total</div></div>
+  <div class="tile"><div class="label">Avg time to answer</div><div class="value">{{ summary.avg_ring | duration }}</div>
+    <div class="hint">answered inbound calls</div></div>
+  <div class="tile"><div class="label">New callers</div><div class="value">{{ summary.new_callers }}</div>
+    <div class="hint">first-time inbound</div></div>
+  <div class="tile"><div class="label">Conversions</div><div class="value">{{ summary.conversions }}</div>
+    <div class="hint">{{ summary.revenue | money }} value</div></div>
+  <div class="tile"><div class="label">Avg QA score</div><div class="value">{{ qa_avg | pct }}</div>
+    <div class="hint">{{ qa_count }} review{{ '' if qa_count == 1 else 's' }}</div></div>
+</div>
+
+{% if pending_ack %}
+<div class="card">
+  <h2>Feedback waiting for you</h2>
+  <table>
+    <thead><tr><th>Reviewed</th><th>Call</th><th class="num">Score</th><th>Feedback</th><th></th></tr></thead>
+    <tbody>
+    {% for r in pending_ack %}
+      <tr>
+        <td>{{ r.created_at | local('%b %d') }}</td>
+        <td><a href="/calls/{{ r.call_id }}">#{{ r.call_id }}</a></td>
+        <td class="num">{{ r.score | pct }}</td>
+        <td>{{ r.feedback | truncate(120) }}</td>
+        <td><form method="post" action="/reviews/{{ r.id }}/ack"><input type="hidden" name="next" value="/"><button class="link">Acknowledge</button></form></td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+<div class="grid grid-2">
+  <div class="card">
+    <h2>Calls by day</h2>
+    <div class="legend"><span style="--c: var(--series-1)">Answered</span><span style="--c: var(--series-2)">Missed</span><span style="--c: var(--series-3)">Outbound</span></div>
+    <div class="chart-box"><canvas id="chart-by-day" role="img" aria-label="Stacked bar chart of answered, missed and outbound calls per day"></canvas></div>
+  </div>
+  <div class="card">
+    <h2>Inbound calls by hour of day</h2>
+    <div class="legend"><span style="--c: var(--series-1)">Answered</span><span style="--c: var(--series-2)">Missed</span></div>
+    <div class="chart-box"><canvas id="chart-by-hour" role="img" aria-label="Stacked bar chart of answered and missed inbound calls by hour, used for staffing"></canvas></div>
+  </div>
+</div>
+
+<div class="grid grid-3">
+  {% if user.is_manager %}
+  <div class="card">
+    <h2>Agent leaderboard</h2>
+    {% include "_leaderboard.html" %}
+  </div>
+  {% endif %}
+  <div class="card">
+    <h2>Top sources (inbound)</h2>
+    {% set top = summary.by_source[0].calls if summary.by_source else 1 %}
+    <table>
+      <thead><tr><th>Source</th><th class="num">Calls</th><th class="num">Answered</th><th class="num">Conv.</th></tr></thead>
+      <tbody>
+      {% for s in summary.by_source %}
+        <tr>
+          <td><div class="bar-cell"><span style="min-width: 110px">{{ s.source }}</span>
+            <div class="bar-track"><div class="bar-fill" style="width: {{ (100 * s.calls / top) | round }}%"></div></div></div></td>
+          <td class="num">{{ s.calls }}</td>
+          <td class="num">{{ (100 * s.answered / s.calls) | round | int }}%</td>
+          <td class="num">{{ s.conversions }}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="4" class="muted">No inbound calls in this period.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<details class="card">
+  <summary>Daily numbers (table view)</summary>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Date</th><th class="num">Answered</th><th class="num">Missed</th><th class="num">Outbound</th></tr></thead>
+    <tbody>{% for d in summary.by_day %}<tr><td>{{ d.date }}</td><td class="num">{{ d.answered }}</td><td class="num">{{ d.missed }}</td><td class="num">{{ d.outbound }}</td></tr>{% endfor %}</tbody>
+  </table>
+  </div>
+</details>
+<script type="application/json" id="chart-data">{{ chart_json | safe }}</script>
+{% endblock %}
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="/static/charts.js"></script>
+{% endblock %}

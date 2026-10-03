@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}Calls{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Calls</h1>
+    <p class="sub">{{ total }} call{{ '' if total == 1 else 's' }} · {{ filters.start.strftime('%b %d') }} – {{ filters.end.strftime('%b %d, %Y') }}</p>
+  </div>
+  <a class="btn secondary" href="/calls/export.csv?{{ query }}">Export CSV</a>
+</div>
+{% with show=['agent', 'direction', 'outcome', 'source', 'q'] %}{% include "_filters.html" %}{% endwith %}
+
+<div class="card table-wrap">
+<table>
+  <thead>
+    <tr><th>When</th><th>Caller</th><th>Status</th><th>Agent</th><th>Source</th><th class="num">Ring</th><th class="num">Talk</th><th>Tags</th><th>QA</th><th></th></tr>
+  </thead>
+  <tbody>
+  {% for c in calls %}
+    <tr>
+      <td class="num" style="text-align:left"><a href="/calls/{{ c.id }}">{{ c.called_at | local('%b %d %I:%M %p') }}</a></td>
+      <td>{{ c.caller_name or '—' }}<br><span class="muted">{{ c.caller_number | phone }}{% if c.is_new_caller %} · new{% endif %}</span></td>
+      <td>{% include "_call_status.html" %}</td>
+      <td>{{ c.agent_name or '—' }}</td>
+      <td>{{ c.source or '—' }}</td>
+      <td class="num">{{ c.ring_time | duration }}</td>
+      <td class="num">{{ c.talk_time | duration }}</td>
+      <td>{% for t in c.tag_list %}<span class="tag">{{ t }}</span>{% endfor %}</td>
+      <td class="num">{% if c.reviews %}{{ c.reviews[0].score | pct }}{% else %}<span class="muted">—</span>{% endif %}</td>
+      <td>{% if c.has_recording %}<a href="/calls/{{ c.id }}" title="Has recording" aria-label="Has recording">▶ Listen</a>{% endif %}</td>
+    </tr>
+  {% else %}
+    <tr><td colspan="10" class="muted">No calls match these filters. If this is a new install, run a sync from the Admin page.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% if pages > 1 %}
+<div class="pager">
+  {% if page > 1 %}<a class="btn secondary" href="?{{ query }}&page={{ page - 1 }}">← Newer</a>{% endif %}
+  <span class="muted">Page {{ page }} of {{ pages }}</span>
+  {% if page < pages %}<a class="btn secondary" href="?{{ query }}&page={{ page + 1 }}">Older →</a>{% endif %}
+</div>
+{% endif %}
+</div>
+{% endblock %}

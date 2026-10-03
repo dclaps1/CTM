@@ -1,0 +1,26 @@
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr>
+      <th>Agent</th><th class="num">Calls</th><th class="num">In / Out</th><th class="num">Answered</th>
+      <th class="num">Avg talk</th><th class="num">Avg to answer</th><th class="num">Conv.</th><th class="num">QA avg</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for r in board %}
+    <tr>
+      <td><a href="/?{{ {'agent': r.agent_id, 'start': filters.start.isoformat(), 'end': filters.end.isoformat()} | urlencode }}">{{ r.name }}</a></td>
+      <td class="num">{{ r.calls }}</td>
+      <td class="num">{{ r.inbound }} / {{ r.outbound }}</td>
+      <td class="num">{{ r.answered }}</td>
+      <td class="num">{{ r.avg_talk | duration }}</td>
+      <td class="num">{{ r.avg_ring | duration }}</td>
+      <td class="num">{{ r.conversions }}</td>
+      <td class="num">{% if r.qa_count %}<a href="/reviews?{{ {'agent': r.agent_id, 'start': filters.start.isoformat(), 'end': filters.end.isoformat()} | urlencode }}">{{ r.qa_avg | pct }}</a> <span class="muted">({{ r.qa_count }})</span>{% else %}<span class="muted">—</span>{% endif %}</td>
+    </tr>
+  {% else %}
+    <tr><td colspan="8" class="muted">No agent activity in this period.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>

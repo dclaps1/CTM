@@ -1,0 +1,89 @@
+# Notes for Claude
+
+## Locations
+
+- Only 10 Voda locations use CTM (the call center) today. They are the 10 markets in `MARKETS` in
+  `app/brief.py`. West Boston is one of them. It is probably the market this code calls "Greater Boston"
+  (keyword "boston"); not yet confirmed.
+- Every location is being added to Workiz (`WORKIZ_TOKEN_<LOCATION>`), including ones not on CTM.
+  Workiz-only locations get the Jobs & Revenue numbers but no CTM matching (marked "not on CTM").
+- Dan (CEO) will confirm the names of the other 9 CTM locations; update `MARKETS` and
+  `MARKET_ENV` in `app/workiz_client.py` to match.
+
+## Conventions
+
+- Never print Workiz or CTM tokens. Workiz puts the token in the URL path, so never log request URLs.
+- Run `pytest` and `ruff check app tests` before committing.
+
+## Open questions
+
+- Greensboro (Workiz-only, not on CTM; token added 2026-10-01, connection checked and working). Its Workiz has a
+  "done pending approval" status (11 jobs in 2026 so far). `app/jobs.py` counts any status starting with "done"
+  as sold once it has revenue, so these count as closed today. Ask Dan whether they should wait until approved.
+- South Kansas City is Workiz account 143776 (Overland Park, Olathe, Lawrence, Leawood, Lee's Summit; 649 jobs in the
+  last 12 months), read from `WORKIZ_TOKEN_SOUTH_KANSAS_CITY`. `WORKIZ_TOKEN_KANSAS_CITY` is a different account
+  (141043, north side: Kansas City, Liberty, Kearney, Leavenworth; 219 jobs) and shows as its own "Kansas City"
+  location. Checked 2026-10-01 against Dan's account sheet; this corrects the earlier mapping of KANSAS_CITY.
+- South Atlanta is Workiz account 155818 (found 2026-10-01 in the Workiz billing workbook; token works, jobs in
+  Atlanta, Newnan, Riverdale, Fayetteville). Earlier note: neither Atlanta token is it (checked 2026-10-01, last 12 months):
+  `ATLANTA_MARIETTA_WOODSTOCK` is the NW suburbs (Alpharetta, Marietta, Powder Springs, Canton, Woodstock, Smyrna;
+  only 6 of 605 jobs south of the city) and `NORTH_ATLANTA` is the NE suburbs (Alpharetta, Cumming, Gainesville,
+  Lawrenceville, Duluth; none south). Do not map either to South Atlanta.
+- NW Arkansas (Workiz-only, not on CTM; token `WORKIZ_TOKEN_NW_ARKANSAS`, connection checked 2026-10-01 and working,
+  225 jobs in the last 12 months, 13 team members, 46 leads). Jobs are Fayetteville, Bentonville, Bella Vista, Rogers,
+  Springdale and Fort Smith. It has 18 "done pending approval / Payment Pending" jobs in 2026 (same question as
+  Greensboro).
+- Fort Worth Arlington (Workiz-only, not on CTM; token `WORKIZ_TOKEN_FORT_WORTH_ARLINGTON`, plus a secret). Checked
+  2026-10-01: connects and works (24 team members), but the account has gone quiet. 284 jobs all time, Oct 2024 to
+  Dec 12 2025; the newest job was created Dec 10 2025 and the newest lead is from Nov 7 2025. Nothing in 2026. Last
+  12 months: 48 jobs (32 Oct, 14 Nov, 2 Dec 2025), about $27.8k closed revenue, 6 "done pending approval". Jobs are
+  Fort Worth, Arlington, Crowley, North Richland Hills, Benbrook and Weatherford TX. Ask Dan whether this location
+  closed, or moved to a different Workiz account. If it moved, it needs a new token.
+- Houston Sugar Land (token `WORKIZ_TOKEN_HOUSTON_SUGAR_LAND`, plus a secret). Checked 2026-10-01: Workiz rejects
+  the token with HTTP 401, while other markets connect fine with the same code. Dan thinks this location may be
+  closed. Come back to it: confirm with Dan whether it is closed; if so, remove its token/secret so it stops
+  appearing (it is skipped with a warning today); if not, get a fresh API token from its Workiz admin.
+- Charlotte Matthews (Workiz-only, not on CTM; token `WORKIZ_TOKEN_CHARLOTTE_MATTHEWS`, plus a secret). Checked
+  2026-10-01: Workiz rejects the token with HTTP 401 on both `team/all` and `job/all`, while Greensboro connects
+  fine with the same code at the same time. The token looks well formed (36 chars, `api_` prefix, no stray
+  whitespace or quotes), so it is most likely revoked, regenerated, or copied from the wrong account. Get a fresh
+  API token from its Workiz admin (Settings → Developer/API). It is skipped with a warning until then.
+- `WORKIZ_SECRET_PITSSBURGH` is misspelled (token is `WORKIZ_TOKEN_PITTSBURGH`). Harmless today because the code
+  only reads tokens, but rename it to `WORKIZ_SECRET_PITTSBURGH` if secrets are ever used.
+- SW Georgia (Workiz-only, not on CTM; token `WORKIZ_TOKEN_SW_GEORGIA`, no secret). Checked 2026-10-01: connects
+  and works (12 team members). Last 12 months: 429 jobs (373 Done, 33 Canceled, 16 In progress), about $651k closed
+  revenue, newest job created 2026-09-30. Jobs are Leesburg, Albany, Thomasville, Cairo, Bainbridge, Valdosta and
+  Americus GA. No "done pending approval" jobs.
+- Full API check 2026-10-01 (re-run later the same day, 93 Workiz tokens). CTM connects (11 users, 1,533 calls in the
+  last 7 days). HTTP 401 (token rejected, needs a fresh API token from that location's Workiz admin): Bergen County,
+  Central Florida, Charlotte Matthews, Henderson Las Vegas, Houston Sugar Land, Wesley Chapel Zephyrhills. Connect but
+  no jobs in the last 60 days (ask Dan if closed or moved accounts): Fort Worth Arlington, North Orlando, North Tampa,
+  Reno Carson City, SW Connecticut, West Raleigh. Boca Raton Delray Beach is quiet (6 jobs in 60 days, newest Aug 25).
+  All 10 CTM markets now have a working Workiz token (Charleston, South Atlanta and Lehigh Valley were added).
+- Workiz account names: the "Workiz Accounts" tab of `2026.10 October Workiz Plan Billing.xlsx` (Voda SharePoint,
+  Royalties and Other Fees/IT Stack Invoices/2026) maps every Workiz account id to its location. Used 2026-10-01 to
+  name Charleston (152619), Lehigh Valley-Poconos & Bucks County (149541), South Atlanta (155818), Nashville (119959),
+  Portland (153253), Franklin WI (153251), Northwest Indiana (139165) and North & East Indianapolis (154874); all eight
+  tokens connect and their jobs are in the right cities. CTM markets read them from `WORKIZ_TOKEN_CHARLESTON`,
+  `WORKIZ_TOKEN_LEHIGH_VALLEY` and `WORKIZ_TOKEN_SOUTH_ATLANTA` (all three set and working as of 2026-10-01).
+- Greenville (CTM market) is Greenville SC, Workiz `WORKIZ_TOKEN_GREENVILLE`; Dan confirmed 2026-10-01 that Stosh
+  Fernandez is Greenville on CTM (Stosh is Workiz admin and entered 145 of 150 jobs in the last 90 days; Toby
+  Williamson is manager/tech). `GREENVILLE_NC` (eastern NC) and `SIMPSONVILLE_GREER` are separate franchises. Most
+  Greenville work does not go through CTM: 153 Workiz jobs vs 5 call-center bookings in 90 days; top Workiz sources
+  are "Personal", ELocal, City Wide and Flood It. Its CTM web-form bookings ("Form reactor number dont use" line)
+  often have Minnesota 507 numbers that do not match Workiz. Charleston's contact in CTM notes is Geoff.
+- The call center (Playbook Call Center Co, "PCC") does not get all the calls for its markets' customers (Dan,
+  2026-10-01). Owners and lead services also book straight into Workiz, so Workiz jobs with no CTM history are
+  normal; judge the call center only on contacts it handled, and do not read the CTM/Workiz gap as lost work.
+- Workiz account workbook (`workiz_account_mappings`, uploaded 2026-10-01; MASTER and "in" tabs, ~130 accounts with
+  franchisee ids, Workiz account ids, API token and secret). Never commit it or copy tokens from it into the repo.
+  It holds 24 locations with working tokens that are not yet in the environment (checked 2026-10-01, all connect):
+  Rochester, Chicago West, Minneapolis Southwest, Lakeshore, Delaware County & NW Philadelphia, Greater Kalamazoo,
+  Greater Memphis, North Shore Boston, Toledo, SW & South Central Jersey, Myrtle Beach, Monroe & Downriver, Greater
+  Houston - North Central & South East (a different account from Greater Houston North), Central Oregon, Greater
+  Mobile & Baldwin County, South Shore Boston, SE Dallas, Greater Miami & Florida Keys, The Treasure Coast, Northeast
+  Sacramento, Lake Worth-Boynton Beach, Concord & Walnut Creek, Kenosha-Racine, Boston Metro South. Toledo has jobs in Ann Arbor
+  (a CTM market), so watch for overlap. No token in the workbook: Lee's Summit - Belton, NW Texas, North San Antonio,
+  O'Fallon-Wentzville, McKinney, Raleigh, Katy, North Salt Lake City, Dallas and Mesquite. The six rejected tokens
+  (Bergen County, Central Florida, Charlotte Matthews, Henderson Las Vegas, Houston Sugar Land, Wesley Chapel
+  Zephyrhills) are the same in the workbook, so they still need fresh tokens.

@@ -1,0 +1,51 @@
+{# Shared filter bar. Set `show` to a list of extra filters: agent, direction, outcome, source, q #}
+{% set show = show or [] %}
+<div class="presets">
+  {% for label, s, e in presets %}
+    <a class="{{ 'on' if filters.start.isoformat() == s and filters.end.isoformat() == e }}"
+       href="?{{ {'start': s, 'end': e, 'agent': request.query_params.get('agent', ''), 'source': request.query_params.get('source', '')} | urlencode }}">{{ label }}</a>
+  {% endfor %}
+</div>
+<form class="filters" method="get">
+  <label>From <input type="date" name="start" value="{{ filters.start.isoformat() }}"></label>
+  <label>To <input type="date" name="end" value="{{ filters.end.isoformat() }}"></label>
+  {% if 'agent' in show and user.is_manager %}
+  <label>Agent
+    <select name="agent">
+      <option value="">All agents</option>
+      {% for a in agents %}<option value="{{ a.id }}" {{ 'selected' if filters.agent_id == a.id }}>{{ a.name }}</option>{% endfor %}
+    </select>
+  </label>
+  {% endif %}
+  {% if 'direction' in show %}
+  <label>Direction
+    <select name="direction">
+      <option value="">All</option>
+      <option value="inbound" {{ 'selected' if filters.direction == 'inbound' }}>Inbound</option>
+      <option value="outbound" {{ 'selected' if filters.direction == 'outbound' }}>Outbound</option>
+    </select>
+  </label>
+  {% endif %}
+  {% if 'outcome' in show %}
+  <label>Outcome
+    <select name="outcome">
+      <option value="">All</option>
+      <option value="answered" {{ 'selected' if filters.outcome == 'answered' }}>Answered</option>
+      <option value="missed" {{ 'selected' if filters.outcome == 'missed' }}>Missed</option>
+      <option value="voicemail" {{ 'selected' if filters.outcome == 'voicemail' }}>Voicemail</option>
+    </select>
+  </label>
+  {% endif %}
+  {% if 'source' in show %}
+  <label>Source
+    <select name="source">
+      <option value="">All sources</option>
+      {% for s in sources %}<option {{ 'selected' if filters.source == s }}>{{ s }}</option>{% endfor %}
+    </select>
+  </label>
+  {% endif %}
+  {% if 'q' in show %}
+  <label>Search <input type="search" name="q" value="{{ filters.q or '' }}" placeholder="Name, number, notes"></label>
+  {% endif %}
+  <button type="submit">Apply</button>
+</form>

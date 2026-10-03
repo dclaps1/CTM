@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}Admin{% endblock %}
+{% block content %}
+<div class="page-head"><div><h1>Admin</h1><p class="sub">CTM connection, sync and team accounts.</p></div></div>
+
+<div class="grid grid-2">
+  <div class="card">
+    <h2>CallTrackingMetrics sync</h2>
+    <dl class="facts">
+      <dt>API credentials</dt><dd>{% if settings.ctm_configured %}<span class="pill good">✓ Configured</span> account {{ settings.ctm_account_id }}{% else %}<strong>Not configured</strong> — set CTM_ACCESS_KEY, CTM_SECRET_KEY, CTM_ACCOUNT_ID{% endif %}</dd>
+      <dt>Calls stored</dt><dd>{{ call_count }}</dd>
+      <dt>Auto sync</dt><dd>{% if settings.sync_interval_minutes > 0 %}every {{ settings.sync_interval_minutes }} min{% else %}off{% endif %}</dd>
+      <dt>Last sync</dt><dd>{{ sync.last_sync_at or 'never' }} {% if sync.last_sync_at %}UTC{% endif %}</dd>
+      <dt>Last result</dt><dd>{{ sync.last_sync_result or '—' }}</dd>
+      {% if sync.last_sync_error %}<dt>Last error</dt><dd style="color: var(--critical)">{{ sync.last_sync_error }}</dd>{% endif %}
+    </dl>
+    <form method="post" action="/admin/sync" class="inline-form" style="margin-top:12px">
+      <label>Re-pull last <input type="number" name="days" min="1" max="365" placeholder="auto" style="width:80px"> days</label>
+      <button type="submit">Sync now</button>
+    </form>
+  </div>
+  <div class="card">
+    <h2>Real-time webhook</h2>
+    {% if settings.webhook_token %}
+      <p>In CTM, add a <em>Trigger</em> (or account webhook) that fires when a call ends and POSTs to:</p>
+      <p><code>{{ webhook_url }}</code></p>
+      <p class="muted">Calls then show up within seconds instead of waiting for the next sync. Keep this URL private; it contains the token.</p>
+    {% else %}
+      <p class="muted">Disabled. Set <code>WEBHOOK_TOKEN</code> to enable <code>POST /webhooks/ctm</code> for real-time updates. The scheduled sync works without it.</p>
+    {% endif %}
+  </div>
+</div>
+
+<div class="card">
+  <h2>Add a team member</h2>
+  <form method="post" action="/admin/users" class="inline-form">
+    <input name="name" placeholder="Name" required>
+    <input type="email" name="email" placeholder="Email" required>
+    <select name="role">{% for r in roles %}<option {{ 'selected' if r == 'agent' }}>{{ r }}</option>{% endfor %}</select>
+    <select name="agent_id"><option value="">— link CTM agent —</option>{% for a in agents %}<option value="{{ a.id }}">{{ a.name }}{% if a.email %} ({{ a.email }}){% endif %}</option>{% endfor %}</select>
+    <input type="password" name="password" placeholder="Temporary password (8+)" minlength="8" required>
+    <button type="submit">Add</button>
+  </form>
+  <p class="muted">Agents only see their own calls, stats and feedback, so link each agent login to their CTM agent. CTM agents appear here after the first sync.</p>
+</div>
+
+<div class="card table-wrap">
+  <h2>Team</h2>
+  <table>
+    <thead><tr><th>Name</th><th>Email</th><th>Role · CTM agent · Active · Reset password</th></tr></thead>
+    <tbody>
+    {% for u in users %}
+      <tr>
+        <td>{{ u.name }}</td>
+        <td>{{ u.email }}</td>
+        <td>
+          <form method="post" action="/admin/users/{{ u.id }}" class="inline-form">
+            <select name="role" {{ 'disabled' if u.id == user.id }}>{% for r in roles %}<option {{ 'selected' if r == u.role }}>{{ r }}</option>{% endfor %}</select>
+            {% if u.id == user.id %}<input type="hidden" name="role" value="{{ u.role }}">{% endif %}
+            <select name="agent_id"><option value="">— none —</option>{% for a in agents %}<option value="{{ a.id }}" {{ 'selected' if a.id == u.agent_id }}>{{ a.name }}</option>{% endfor %}</select>
+            <label><input type="checkbox" name="active" {{ 'checked' if u.active }} {{ 'disabled' if u.id == user.id }}> active</label>
+            <input type="password" name="password" placeholder="new password" minlength="8" autocomplete="new-password" style="width:140px">
+            <button class="secondary">Save</button>
+          </form>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}
