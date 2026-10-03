@@ -9,6 +9,7 @@
     python -m app.cli jobs [--market "Greater Boston"] [--pdf jobs.pdf] [--html jobs.html] [--markdown jobs.md]
     python -m app.cli workiz-probe [--market "Greater Boston"] [--days 30]
     python -m app.cli pcc [--days 90] [--pdf pcc.pdf] [--html pcc.html] [--markdown pcc.md] [--json pcc.json]
+    python -m app.cli ops [--days 30] [--pdf ops.pdf] [--html ops.html] [--markdown ops.md] [--json ops.json]
     python -m app.cli roi [--month 2026-09] [--fee 1500] [--margin 0.6] [--pdf roi.pdf] [--html] [--markdown] [--json]
 """
 from __future__ import annotations
@@ -30,6 +31,7 @@ from app.brief import MARKETS, build_brief, load_activity
 from app.brief_render import render_html, render_markdown
 from app.dashboard import render_dashboard, render_jobs_report
 from app.jobs import build_jobs_report, fetch_workiz, render_jobs_markdown
+from app.ops import DAYS as OPS_DAYS, build_ops_report, render_ops_html, render_ops_markdown
 from app.pcc import PCC_DAYS, build_pcc_report, render_pcc_html, render_pcc_markdown
 from app.roi import FEE, MARGIN, build_roi_report, render_roi_html, render_roi_markdown
 from app.workiz_client import MARKET_ENV, WorkizClient, WorkizError, configured_markets
@@ -82,6 +84,12 @@ def main(argv: list[str] | None = None) -> int:
     ro.add_argument("--markdown", type=Path, help="write Markdown here (printed when no output is given)")
     ro.add_argument("--html", type=Path, help="write the printable report (HTML) here")
     ro.add_argument("--pdf", type=Path, help="write the report as a PDF (needs Chromium or Chrome installed)")
+    op = sub.add_parser("ops", help="cancellations and capacity for the call-center markets (Workiz + CTM)")
+    op.add_argument("--days", type=int, default=OPS_DAYS, help="cancellations over this many days back")
+    op.add_argument("--json", type=Path, help="write the raw report here")
+    op.add_argument("--markdown", type=Path, help="write Markdown here (printed when no output is given)")
+    op.add_argument("--html", type=Path, help="write the printable report (HTML) here")
+    op.add_argument("--pdf", type=Path, help="write the report as a PDF (needs Chromium or Chrome installed)")
     args = parser.parse_args(argv)
 
     settings = get_settings()
@@ -95,6 +103,8 @@ def main(argv: list[str] | None = None) -> int:
         return run_pcc(args, settings)
     if args.command == "roi":
         return run_roi(args, settings)
+    if args.command == "ops":
+        return run_ops(args, settings)
     db.configure(settings.database_url)
     db.init_db()
 
@@ -250,6 +260,19 @@ def run_roi(args: argparse.Namespace, settings) -> int:
         act = load_activity(client, today, tz, history_days=(today - start).days + 30)
     write_outputs(args, build_roi_report(act, workiz, start, today, args.fee, args.margin), render_roi_html,
                   render_roi_markdown)
+    return 0
+
+
+def run_ops(args: argparse.Namespace, settings) -> int:
+    tz = ZoneInfo(settings.timezone)
+    today = datetime.now(tz).date()
+    workiz = ctm_market_workiz(today)
+    if not workiz:
+        print("No call-center market could be read from Workiz.", file=sys.stderr)
+        return 1
+    with CTMClient.from_settings(settings) as client:
+        act = load_activity(client, today, tz, history_days=max(args.days, 30) + 60)
+    write_outputs(args, build_ops_report(act, workiz, today, args.days), render_ops_html, render_ops_markdown)
     return 0
 
 

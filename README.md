@@ -131,6 +131,34 @@ python -m app.cli pcc --pdf pcc.pdf          # or --html / --markdown / --json; 
 python -m app.cli roi --month 2026-09 --fee 1500 --pdf roi.pdf   # ROI statement per market against the monthly fee
 ```
 
+### Cancellations & capacity
+
+`python -m app.cli ops` covers the call-center markets: is booked work holding, and is there room to book more?
+
+- **Cancellations (Workiz, last 30 days):**
+  - cancel rate against the 30 days before;
+  - call-center bookings canceled;
+  - when the cancellation happened (2+ days ahead, the day before, the day of, or marked later);
+  - share rebooked, quoted value lost and recorded reasons;
+  - cancel rate by how far ahead the job was booked.
+- **Tech capacity:**
+  - busy-day capacity and jobs booked for the next 5 workdays;
+  - wait for an appointment and same/next-day share;
+  - techs and jobs per tech per week;
+  - CTM opportunities lost because no slot was available.
+- **Call-center capacity (last 7 days, by hour):**
+  - queue calls, answered, agents on shift and how busy they were;
+  - missed calls that rang while an agent was free.
+- **Lists to work:**
+  - appointments in the next 2 days to confirm;
+  - recent cancellations to rebook.
+
+Definitions are at the top of `app/ops.py`. The daily brief also carries a one-line capacity summary.
+
+```bash
+python -m app.cli ops --pdf ops.pdf          # or --html / --markdown / --json; --days 60 for a longer window
+```
+
 ## Configuration
 
 All settings are environment variables. `.env` is read automatically. See [`.env.example`](.env.example).
@@ -172,6 +200,7 @@ app/
   brief_render.py brief → email-safe HTML or Markdown
   dashboard.py    daily dashboard page (tabs, charts) from a brief
   workiz_client.py Workiz API client, one token per market
+  ops.py          Cancellations & capacity report (Workiz + CTM)
   jobs.py         Jobs & Revenue report: Workiz jobs matched to CTM (close rate, quote vs sold, missing amounts)
   pcc.py          call-center follow-through: each CTM booking followed into Workiz (reached, sold, still open)
   main.py         web routes (dashboard, calls, recordings, reviews, callbacks, admin, webhook)

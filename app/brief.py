@@ -500,6 +500,66 @@ def alerts(act: Activity, d: date, markets: list[dict]) -> list[dict]:
     return out
 
 
+def coverage(act: Activity, days: list[date]) -> dict:
+    """Call-center capacity over `days`, by hour of day: queue calls, answered, average agents on shift, how busy
+    they were, and missed calls that rang while an agent was on shift and not on a call.
+
+    An agent is on shift from the start of their first call of the day to the end of their last (inbound or
+    outbound), and busy while on a call. Busy share = call time ÷ time on shift.
+    """
+    wanted = set(days)
+    shifts: dict[tuple[date, str], list[float]] = {}
+    busy: dict[tuple[date, str], list[tuple[float, float]]] = defaultdict(list)
+    for r in act.records:
+        name = agent_name(r)
+        if r["_day"] not in wanted or not name or r.get("direction") not in ("inbound", "outbound"):
+            continue
+        start = r.get("unix_time") or 0
+        end = start + (r.get("duration") or 0)
+        s = shifts.setdefault((r["_day"], name), [start, end])
+        s[0], s[1] = min(s[0], start), max(s[1], end)
+        busy[(r["_day"], name)].append((start, end))
+    hours: dict[int, Counter] = defaultdict(Counter)
+
+    def hour_of(t: float) -> int:
+        return datetime.fromtimestamp(t, act.tz).hour
+
+    for key, (start, end) in shifts.items():
+        t = start
+        while t < end:  # split the shift across clock hours
+            nxt = min(end, (t // 3600 + 1) * 3600)
+            hours[hour_of(t)]["staffed"] += nxt - t
+            t = nxt
+        for b0, b1 in busy[key]:
+            hours[hour_of(b0)]["busy"] += min(b1, end) - b0
+    for r in act.records:
+        if r["_day"] not in wanted or not is_queued_inbound(r):
+            continue
+        t = r.get("unix_time") or 0
+        c = hours[hour_of(t)]
+        c["queued"] += 1
+        if r.get("dial_status") == "answered":
+            c["answered"] += 1
+            continue
+        c["missed"] += 1
+        on = [k for k, (s0, s1) in shifts.items() if k[0] == r["_day"] and s0 <= t <= s1]
+        c["missed_free"] += any(not any(b0 <= t <= b1 for b0, b1 in busy[k]) for k in on)
+    n = len(days) or 1
+    rows = [{"hour": h, "queued": c["queued"], "answered": c["answered"], "missed": c["missed"],
+             "missed_free": c["missed_free"], "answered_rate": ratio(c["answered"], c["queued"]),
+             "agents": round(c["staffed"] / 3600 / n, 1), "busy": ratio(c["busy"], c["staffed"]),
+             "calls_per_agent_hour": ratio(c["queued"], c["staffed"] / 3600)}
+            for h, c in sorted(hours.items()) if c["queued"] or c["staffed"]]
+    total = Counter()
+    for c in hours.values():
+        total.update(c)
+    worst = max(rows, key=lambda x: (x["missed"], x["queued"]), default=None)
+    return {"days": len(days), "hours": rows, "worst_hour": worst["hour"] if worst and worst["missed"] else None,
+            "missed": total["missed"], "missed_free": total["missed_free"],
+            "missed_free_rate": ratio(total["missed_free"], total["missed"]),
+            "busy": ratio(total["busy"], total["staffed"]), "agent_hours": round(total["staffed"] / 3600, 1)}
+
+
 def _hour(h: int) -> str:
     return f"{(h - 1) % 12 + 1}{'am' if h < 12 else 'pm'}"
 
@@ -561,6 +621,7 @@ def build_brief(act: Activity, d: date, targets: Targets = Targets(), now: float
         "agents": agent_table(act, d, recent),
         "markets": markets,
         "out_of_area_leads": out_of_area,
+        "coverage": {"day": coverage(act, [d]), "seven_day": coverage(act, week)},
     }
 
 

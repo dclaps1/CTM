@@ -155,7 +155,7 @@ def render_markdown(brief: dict, notes: str = "") -> str:
             f"(prior {money(n['prior']['avg_ticket'])}, 7-day {money(n['seven_day']['avg_ticket'])})", "",
             "## Missed calls called back within 60 seconds", table(rows["callback"]), "",
             "## Calls handled: answered + called back within 60 sec", table(rows["handled"]),
-            "ProNexis answers 88.7% live.", "", "## Action list"]
+            "ProNexis answers 88.7% live.", coverage_line(brief), "", "## Action list"]
     for heading, items in _action_lines(brief):
         out += [f"**{heading}**"] + [f"- [ ] {i}" for i in items] + [""]
     out += ["## Did the prior day's follow-ups happen?"] + [f"- {x}" for x in _follow(brief)] + [""]
@@ -189,7 +189,8 @@ def render_html(brief: dict, notes: str = "") -> str:
               f"(prior {money(n['prior']['avg_ticket'])}, 7-day {money(n['seven_day']['avg_ticket'])})</p>",
               "<h3>Missed calls called back within 60 seconds</h3>", table(rows["callback"]),
               "<h3>Calls handled: answered + called back within 60 sec</h3>", table(rows["handled"]),
-              "<p>ProNexis answers 88.7% live.</p>", "<h3>Action list</h3>"]
+              "<p>ProNexis answers 88.7% live.</p>", f"<p>{escape(coverage_line(brief))}</p>",
+              "<h3>Action list</h3>"]
     for heading, items in _action_lines(brief):
         parts += [f"<p><b>{escape(heading)}</b></p>", ul(items, check=True)]
     parts += ["<h3>Did the prior day's follow-ups happen?</h3>", ul(_follow(brief))]
@@ -201,6 +202,24 @@ def render_html(brief: dict, notes: str = "") -> str:
               f"<p>Plus {brief['out_of_area_leads']} out-of-area leads, not worked.</p>",
               f"<p><small>{escape(_footnote(brief))}</small></p>"]
     return "\n".join(parts)
+
+
+def coverage_line(brief: dict) -> str:
+    """One line on call-center capacity: missed calls that rang while an agent was free, how busy agents were."""
+    cov = brief.get("coverage")
+    if not cov:
+        return ""
+
+    def part(c: dict) -> str:
+        worst = f", most missed at {_hour(c['worst_hour'])}" if c.get("worst_hour") is not None else ""
+        return (f"{c['missed_free']} of {c['missed']} missed calls rang with an agent free, agents on calls "
+                f"{pct(c['busy'])} of their shift{worst}")
+
+    return f"Capacity: {_label(brief['day'])} {part(cov['day'])}. Last 7 days: {part(cov['seven_day'])}."
+
+
+def _hour(h: int) -> str:
+    return f"{(h - 1) % 12 + 1}{'am' if h < 12 else 'pm'}"
 
 
 def _footnote(brief: dict) -> str:
